@@ -4,7 +4,7 @@ DataForge is a Next.js App Router workspace for turning CSV/Excel data into a wa
 
 ## Run
 
-Use **Node.js 24** and **pnpm 11.25.0**. The SQLite native dependency requires a supported Node runtime. Native compilation, when needed, uses Python 3, make, and a C++ compiler.
+Use **Node.js 22.13.0 or newer** (Node.js 24 LTS recommended) and **pnpm 11.25.0**. SQLite uses Node's built-in `node:sqlite` (`DatabaseSync`), available without an experimental flag from Node.js 22.13.0. No separate SQLite package, Python, make, or C++ compiler is needed, including on Windows.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -28,7 +28,7 @@ XDG_DATA_HOME=/workspace/.local/share XDG_CACHE_HOME=/workspace/.cache \
   pnpm install --frozen-lockfile --store-dir /workspace/.pnpm-store
 ```
 
-Use the existing isolated checkout; no worktree is necessary. `pnpm-workspace.yaml` permits the SQLite native build and the existing tooling build steps without an interactive approval prompt.
+Use the existing isolated checkout; no worktree is necessary. `pnpm-workspace.yaml` permits the existing tooling build steps without an interactive approval prompt.
 
 ## Try an import
 
@@ -53,7 +53,7 @@ Default paths are relative to the repository root:
 
 The entire `data/` directory is gitignored. Preserve this directory on persistent local storage when restarting or deploying the app. Do not place uploads in `public/`. `DATAFORGE_DATA_DIR` can optionally select a different data directory; automated checks use temporary directories so they never seed or remove your own projects. No data migration or sample-data import runs during build.
 
-SQLite uses the `projects` and `column_profiles` tables in `lib/server/db.ts`, foreign keys, WAL, and parameterized transactional writes. Samples are JSON-encoded text in `column_profiles.sample_values`; inferred types and override types are stored separately. Source files are retained when imports succeed; failed imports clean up their new upload directory and do not create a project.
+SQLite uses Node's built-in `DatabaseSync` with the `projects` and `column_profiles` tables in `lib/server/db.ts`, foreign keys, WAL, and parameterized transactional writes. Existing `data/dataforge.db` files work unchanged; no migration or re-import is needed. Samples are JSON-encoded text in `column_profiles.sample_values`; inferred types and override types are stored separately. Source files are retained when imports succeed; failed imports clean up their new upload directory and do not create a project.
 
 ## Profiling behavior
 
