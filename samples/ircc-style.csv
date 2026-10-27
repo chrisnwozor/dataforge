@@ -1,0 +1,13 @@
+Application ID,Immigration Program,Program Group,Province,Applicants,Admissions,Approval Rate
+IRCC-1001,Federal Skilled Worker,Economic,Ontario,140,105,0.75
+IRCC-1002,Canadian Experience Class,Economic,Ontario,220,198,0.90
+IRCC-1003,Family Sponsorship,Family,British Columbia,80,72,0.90
+IRCC-1004,Government Assisted Refugee,Refugees,Alberta,60,51,0.85
+IRCC-1005,Federal Skilled Worker,Economic,British Columbia,120,90,0.75
+IRCC-1006,Canadian Experience Class,Economic,Alberta,160,144,0.90
+IRCC-1007,Family Sponsorship,Family,Ontario,100,88,0.88
+IRCC-1008,Government Assisted Refugee,Refugees,Ontario,70,63,0.90
+IRCC-1009,Federal Skilled Worker,Economic,Alberta,80,60,0.75
+IRCC-1010,Canadian Experience Class,Economic,British Columbia,180,162,0.90
+IRCC-1011,Family Sponsorship,Family,Alberta,90,81,0.90
+IRCC-1012,Government Assisted Refugee,Refugees,British Columbia,50,40,0.80

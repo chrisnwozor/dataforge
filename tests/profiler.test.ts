@@ -130,20 +130,26 @@ describe("CSV profiling", () => {
     expect(result.rowCount).toBe(4);
     expect(result.columnCount).toBe(4);
     expect(result.raggedRowCount).toBe(0);
+    expect(result.duplicateRowCount).toBe(0);
+    expect(result.totalNullCells).toBe(6);
+    expect(result.sampledRowsTruncated).toBe(false);
     expect(result.columns[0]).toMatchObject({
       name: "id",
       inferredType: "integer",
       nullPct: 0,
+      nullCount: 0,
       distinctCount: 4,
       duplicateCount: 0,
       minValue: "1",
       maxValue: "4",
       isKeyCandidate: true,
+      isNearKeyCandidate: false,
       sampleValues: ["1", "2", "3", "4"],
     });
     expect(result.columns[1]).toMatchObject({
       inferredType: "integer",
       nullPct: 50,
+      nullCount: 2,
       distinctCount: 2,
       duplicateCount: 0,
       minValue: "2",
@@ -166,6 +172,96 @@ describe("CSV profiling", () => {
       maxValue: null,
       sampleValues: [],
     });
+  });
+  it("distinguishes keys, near-keys at 99.5%, and lower-cardinality columns", async () => {
+    const result = await csv(
+      "key,near,below\n" +
+        Array.from({ length: 200 }, (_, index) =>
+          [index, Math.min(index, 198), Math.min(index, 197)].join(","),
+        ).join("\n"),
+    );
+    expect(result.columns[0]).toMatchObject({
+      distinctCount: 200,
+      isKeyCandidate: true,
+      isNearKeyCandidate: false,
+    });
+    expect(result.columns[1]).toMatchObject({
+      distinctCount: 199,
+      isKeyCandidate: false,
+      isNearKeyCandidate: true,
+    });
+    expect(result.columns[2]).toMatchObject({
+      distinctCount: 198,
+      isKeyCandidate: false,
+      isNearKeyCandidate: false,
+    });
+  });
+  it("uses exact null counts even when the displayed percentage rounds to zero", async () => {
+    const result = await csv(
+      "id,label\n" +
+        Array.from(
+          { length: 20_001 },
+          (_, index) => `${index === 20_000 ? "" : index},row`,
+        ).join("\n"),
+    );
+    expect(result.columns[0]).toMatchObject({
+      nullPct: 0,
+      nullCount: 1,
+      distinctCount: 20_000,
+      isKeyCandidate: false,
+      isNearKeyCandidate: false,
+    });
+    expect(result.totalNullCells).toBe(1);
+  });
+  it("counts duplicate full rows without confusing field boundaries or nulls", async () => {
+    const result = await csv(
+      'left,right\n"a,b",c\na,"b,c"\na,b\na, b ,extra\na\n a ,\n',
+    );
+    expect(result.rowCount).toBe(6);
+    expect(result.duplicateRowCount).toBe(2);
+    expect(result.totalNullCells).toBe(2);
+    expect(result.raggedRowCount).toBe(2);
+    expect(result.sampledRows).toEqual([
+      ["a,b", "c"],
+      ["a", "b,c"],
+      ["a", "b"],
+      ["a", "b"],
+      ["a", null],
+      ["a", null],
+    ]);
+    expect(result.sampledRowsTruncated).toBe(false);
+  });
+  it("caps modeling evidence at the first 5,000 rows but profiles the complete file", async () => {
+    const result = await csv(
+      "id\n" + Array.from({ length: 5001 }, (_, index) => index).join("\n"),
+    );
+    expect(result.sampledRows).toHaveLength(5000);
+    expect(result.sampledRows.at(-1)).toEqual(["4999"]);
+    expect(result.sampledRowsTruncated).toBe(true);
+    expect(result.rowCount).toBe(5001);
+    expect(result.columns[0].distinctCount).toBe(5001);
+    expect(result.columns[0].isKeyCandidate).toBe(true);
+  });
+  it("bounds sample JSON bytes including UTF-8, escaping, separators, and null cells", async () => {
+    const value = 'é\\"'.repeat(600);
+    const row = `"${value.replaceAll('"', '""')}",,,\n`;
+    const result = await csv("value,a,b,c\n" + row.repeat(1500) + "tiny,,,\n");
+    const budget = 4 * 1024 * 1024;
+    expect(result.sampledRowsTruncated).toBe(true);
+    expect(result.sampledRows.length).toBeLessThan(1500);
+    expect(
+      Buffer.byteLength(JSON.stringify(result.sampledRows)),
+    ).toBeLessThanOrEqual(budget);
+    expect(
+      Buffer.byteLength(
+        JSON.stringify([...result.sampledRows, [value, null, null, null]]),
+      ),
+    ).toBeGreaterThan(budget);
+    expect(result.sampledRows.at(-1)?.[0]).toBe(value);
+    expect(result.rowCount).toBe(1501);
+    expect(result.duplicateRowCount).toBe(1499);
+    expect(result.totalNullCells).toBe(4503);
+    expect(result.columns[0].distinctCount).toBe(2);
   });
   it("handles UTF-8 BOM, quoted separators, escaped quotes, CRLF and embedded newlines", async () => {
     const result = await csv(
@@ -348,6 +444,13 @@ describe("XLSX profiling", () => {
       "decimal",
       "date",
       "boolean",
+    ]);
+    expect(result.duplicateRowCount).toBe(0);
+    expect(result.totalNullCells).toBe(0);
+    expect(result.sampledRowsTruncated).toBe(false);
+    expect(result.sampledRows).toEqual([
+      ["1", "12.5", "2026-01-02T00:00:00.000Z", "true"],
+      ["2", "4.25", "2026-01-03T00:00:00.000Z", "false"],
     ]);
   });
   it("rejects local/central size mismatches before SheetJS sees the archive", async () => {

@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { inflateRawSync } from "node:zlib";
 import { Readable } from "node:stream";
@@ -22,6 +23,8 @@ const MAX_XLSX_ROWS = 1_000_000;
 const MAX_XLSX_CELL_VISITS = 2_000_000;
 const MAX_XLSX_EXPANDED_BYTES = 256 * 1024 * 1024;
 const MAX_RAGGED_EXAMPLES = 5;
+const MAX_MODELING_SAMPLE_ROWS = 5_000;
+const MAX_MODELING_SAMPLE_BYTES = 4 * 1024 * 1024;
 type Comparable = string | number | bigint;
 interface Bounds {
   min: Comparable;
@@ -173,6 +176,12 @@ class ProfileAccumulator {
   private rowCount = 0;
   private raggedRowCount = 0;
   private raggedRowExamples: ProfileResult["raggedRowExamples"] = [];
+  private rowFingerprints = new Set<string>();
+  private duplicateRowCount = 0;
+  private totalNullCells = 0;
+  private sampledRows: ProfileResult["sampledRows"] = [];
+  private sampledRowsBytes = 2; // JSON array's opening and closing brackets.
+  private sampledRowsTruncated = false;
 
   add(record: unknown[]) {
     if (!this.columns.length) {
@@ -206,12 +215,15 @@ class ProfileAccumulator {
           actual: record.length,
         });
     }
+    const normalizedRow: (string | null)[] = [];
     this.columns.forEach((column, ordinal) => {
       const raw = record[ordinal];
       const value =
         raw instanceof Date ? raw.toISOString() : String(raw ?? "").trim();
+      normalizedRow.push(value === "" ? null : value);
       if (value === "") {
         column.nulls++;
+        this.totalNullCells++;
         return;
       }
       column.nonNulls++;
@@ -227,6 +239,28 @@ class ProfileAccumulator {
       updateBounds(column, "decimal", decimalValue(value), value);
       updateBounds(column, "date", dateValue(value), value);
     });
+    // Hash the same normalized, header-width records that feed column statistics.
+    // JSON preserves field boundaries, embedded separators, nulls, and newlines.
+    const serializedRow = JSON.stringify(normalizedRow);
+    const fingerprint = createHash("sha256")
+      .update(serializedRow)
+      .digest("hex");
+    if (this.rowFingerprints.has(fingerprint)) this.duplicateRowCount++;
+    else this.rowFingerprints.add(fingerprint);
+    if (!this.sampledRowsTruncated) {
+      const additionalBytes =
+        Buffer.byteLength(serializedRow, "utf8") +
+        (this.sampledRows.length ? 1 : 0);
+      if (
+        this.sampledRows.length >= MAX_MODELING_SAMPLE_ROWS ||
+        this.sampledRowsBytes + additionalBytes > MAX_MODELING_SAMPLE_BYTES
+      ) {
+        this.sampledRowsTruncated = true;
+      } else {
+        this.sampledRows.push(normalizedRow);
+        this.sampledRowsBytes += additionalBytes;
+      }
+    }
   }
 
   finish(delimiter: string): ProfileResult {
@@ -244,18 +278,27 @@ class ProfileAccumulator {
         name: column.name,
         inferredType,
         nullPct: Math.round((column.nulls / this.rowCount) * 10_000) / 100,
+        nullCount: column.nulls,
         distinctCount: column.distinct.size,
         duplicateCount: column.nonNulls - column.distinct.size,
         minValue: bounds?.minRaw ?? null,
         maxValue: bounds?.maxRaw ?? null,
         isKeyCandidate:
-          column.nulls === 0 && column.distinct.size === this.rowCount,
+          column.nulls === 0 && column.distinct.size === column.nonNulls,
+        isNearKeyCandidate:
+          column.nulls === 0 &&
+          column.distinct.size < column.nonNulls &&
+          column.distinct.size * 1000 >= column.nonNulls * 995,
         sampleValues: column.samples,
       };
     });
     return {
       rowCount: this.rowCount,
       columnCount: columns.length,
+      duplicateRowCount: this.duplicateRowCount,
+      totalNullCells: this.totalNullCells,
+      sampledRows: this.sampledRows,
+      sampledRowsTruncated: this.sampledRowsTruncated,
       columns,
       raggedRowCount: this.raggedRowCount,
       raggedRowExamples: this.raggedRowExamples,

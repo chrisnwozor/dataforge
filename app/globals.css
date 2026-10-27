@@ -1886,3 +1886,234 @@ select {
     scroll-behavior: auto !important;
   }
 }
+
+/* Persisted model editor controls use the existing workspace palette. */
+.model-editor-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.model-save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.model-save-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--red);
+  font-size: 11px;
+  margin: 0 0 14px;
+}
+.model-column-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.model-card-title {
+  min-width: 0;
+}
+.model-editable-column {
+  display: block;
+  padding: 7px 8px;
+  touch-action: auto;
+}
+.model-column-main {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.model-column-rename {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.model-column-rename .rename-input {
+  min-width: 0;
+  width: 100%;
+  font-size: 10px;
+}
+.model-small-icon.button {
+  width: 20px;
+  height: 22px;
+  min-height: 22px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.model-drag-handle {
+  display: flex;
+  align-items: center;
+  padding: 1px;
+  border: 0;
+  background: transparent;
+  color: var(--subtle);
+  cursor: grab;
+  touch-action: none;
+}
+.model-measure-settings {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 5px;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 9px;
+}
+.model-reason-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.model-reason {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: help;
+}
+.model-tooltip {
+  position: absolute;
+  z-index: 40;
+  width: 220px;
+  max-width: 60vw;
+  padding: 8px 10px;
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  font:
+    10px/1.6 var(--font-geist-sans),
+    sans-serif;
+  left: 0;
+  bottom: calc(100% + 5px);
+  visibility: hidden;
+  pointer-events: none;
+  white-space: normal;
+}
+.model-reason-wrap:hover .model-tooltip,
+.model-reason-wrap:focus-within .model-tooltip {
+  visibility: visible;
+}
+.model-foreign-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 4px 2px;
+}
+.model-foreign-target {
+  margin-left: auto;
+  font-size: 9px;
+}
+.model-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 5px;
+  line-height: 1.8;
+  font-size: 9px;
+}
+.model-validation {
+  border-top: 1px solid var(--line);
+  padding: 14px;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.model-validation h2 {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  margin: 0 0 10px;
+  font-weight: 500;
+}
+.model-validation ul {
+  margin: 0;
+  padding-left: 15px;
+}
+.model-validation li {
+  margin: 0 0 7px;
+  overflow-wrap: anywhere;
+}
+.model-validation p {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+}
+.model-validation-error {
+  color: var(--red);
+}
+.model-validation-warning {
+  color: var(--muted);
+}
+.model-duplicate-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 12px;
+  color: var(--text);
+}
+.model-duplicate-option input {
+  margin-top: 3px;
+}
+.model-confirm-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+.model-confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+.model-confirm-dialog h2 {
+  font-size: 17px;
+  margin: 0 0 12px;
+}
+.model-confirm-dialog p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+.model-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+@media (max-width: 760px) {
+  .model-save-status {
+    min-width: 55px;
+  }
+  .model-tooltip {
+    left: auto;
+    right: 0;
+  }
+  .model-card-title .rename-input {
+    max-width: 170px;
+  }
+}
+.model-schema-scroll {
+  max-height: 440px;
+  overflow: auto;
+}

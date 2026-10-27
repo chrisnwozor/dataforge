@@ -5,8 +5,8 @@ import {
   ArrowRight,
   FileSpreadsheet,
   Columns3,
-  Table2,
-  Clock3,
+  Copy,
+  CircleDashed,
   Check,
   Upload,
   Workflow,
@@ -60,7 +60,7 @@ export default async function Overview({
       />
       <div className="stats-grid">
         <StatCard
-          label="Source rows"
+          label="Total rows"
           value={number(project.rows)}
           detail="Rows in the uploaded dataset"
           icon={<FileSpreadsheet size={14} />}
@@ -72,20 +72,22 @@ export default async function Overview({
           icon={<Columns3 size={14} />}
         />
         <StatCard
-          label="Warehouse tables"
-          value={String(project.tables)}
-          detail="Fact and dimension tables"
-          icon={<Table2 size={14} />}
+          label="Fully duplicated rows"
+          value={
+            project.duplicateRows == null ? "—" : number(project.duplicateRows)
+          }
+          detail="Extra occurrences of identical source rows"
+          icon={<Copy size={14} />}
         />
         <StatCard
-          label="Last run"
-          value={project.lastRun === "Not run yet" ? "—" : project.lastRun}
-          detail={
-            project.lastRun === "Not run yet"
-              ? "Your first load is waiting"
-              : "Last simulated warehouse load"
+          label="Total null cells"
+          value={
+            project.totalNullCells == null
+              ? "—"
+              : number(project.totalNullCells)
           }
-          icon={<Clock3 size={14} />}
+          detail="Blank or missing values across all columns"
+          icon={<CircleDashed size={14} />}
         />
       </div>
       <section className="panel">
@@ -177,8 +179,8 @@ export default async function Overview({
       <div className="info-banner">
         <History size={15} />
         <span>
-          Upload and profiling use your source file. Model, SQL generation, and
-          run history remain previews for now.
+          Upload, profiling, and modeling use your source file. SQL generation
+          and run history remain previews for now.
         </span>
         <Link href={`/projects/${id}/runs`}>
           Explore run history <ArrowRight size={12} />

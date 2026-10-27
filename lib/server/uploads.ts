@@ -8,8 +8,8 @@ import { HttpError, boundedBody } from "./http";
 import {
   projectUploadDirectory,
   saveProjectProfile,
+  profileReport,
   type StoredProject,
-  type ProfileReport,
 } from "./projects";
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -173,11 +173,7 @@ export async function createProjectFromUpload(
           : "The file could not be profiled.",
       );
     }
-    const report: ProfileReport = {
-      raggedRowCount: profile.raggedRowCount,
-      raggedRowExamples: profile.raggedRowExamples,
-      delimiter: profile.delimiter,
-    };
+    const report = profileReport(profile);
     await writeFile(
       join(directory, "profile-report.json"),
       JSON.stringify(report),
@@ -192,6 +188,8 @@ export async function createProjectFromUpload(
       status: profile.raggedRowCount > 0 ? "Needs review" : "Ready",
       rowCount: profile.rowCount,
       columnCount: profile.columnCount,
+      duplicateRowCount: profile.duplicateRowCount,
+      totalNullCells: profile.totalNullCells,
       createdAt: timestamp,
       updatedAt: timestamp,
     };

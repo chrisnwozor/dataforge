@@ -97,7 +97,7 @@ export function ProfileTable({
       (c) =>
         c.name.toLowerCase().includes(search.toLowerCase()) &&
         (filter === "all" ||
-          (filter === "keys" && c.keyCandidate) ||
+          (filter === "keys" && (c.keyCandidate || c.nearKeyCandidate)) ||
           (filter === "nulls" && c.nullPercent > 0)),
     );
     return sorted
@@ -252,9 +252,14 @@ export function ProfileTable({
                 <td className="mono muted small">{c.min}</td>
                 <td className="mono muted small">{c.max}</td>
                 <td>
-                  {c.keyCandidate ? (
+                  {c.keyCandidate || c.nearKeyCandidate ? (
                     <span
                       className="key-badge"
+                      title={
+                        c.keyCandidate
+                          ? "Every value is distinct, with no nulls."
+                          : "At least 99.5% of values are distinct, with no nulls."
+                      }
                       style={{
                         display: "inline-flex",
                         gap: 4,
@@ -262,7 +267,7 @@ export function ProfileTable({
                       }}
                     >
                       <KeyRound size={10} />
-                      Candidate
+                      {c.keyCandidate ? "Key" : "Near-key"}
                     </span>
                   ) : (
                     <span className="muted">—</span>
@@ -303,7 +308,8 @@ export function ProfileTable({
           }}
         >
           <KeyRound size={11} />
-          {columns.filter((c) => c.keyCandidate).length} key candidates
+          {columns.filter((c) => c.keyCandidate).length} keys ·{" "}
+          {columns.filter((c) => c.nearKeyCandidate).length} near-keys
         </span>
       </div>
     </>
