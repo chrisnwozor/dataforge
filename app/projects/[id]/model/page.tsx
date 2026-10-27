@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/shared";
 import { ModelEditor } from "@/components/model-editor";
-import { getInitialModel, getSuggestedModel } from "@/lib/data";
-import { getColumnProfiles } from "@/lib/data/mock";
+import { getColumnProfiles } from "@/lib/data";
+import { getOrCreateModel } from "@/lib/server/models";
 export const metadata = { title: "Model editor" };
 export default async function ModelPage({
   params,
@@ -9,11 +9,9 @@ export default async function ModelPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [initialModel, suggestedModel, columns] = await Promise.all([
-    getInitialModel(id),
-    getSuggestedModel(id),
-    getColumnProfiles(id),
-  ]);
+  // Legacy profiles are enriched before loading source columns for the editor.
+  const saved = await getOrCreateModel(id);
+  const columns = await getColumnProfiles(id);
   return (
     <main className="container">
       <PageHeader
@@ -22,8 +20,9 @@ export default async function ModelPage({
         description="Turn columns into a star schema. Start with a suggestion, make it your own."
       />
       <ModelEditor
-        initialModel={initialModel}
-        suggestedModel={suggestedModel}
+        key={id}
+        initialModel={saved.model}
+        initialSource={saved.source}
         columns={columns}
         projectId={id}
       />

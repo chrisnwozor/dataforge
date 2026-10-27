@@ -1,6 +1,6 @@
 # DataForge
 
-DataForge is a Next.js App Router workspace for turning CSV/Excel data into a warehouse model. Phase 1 implements **real uploads, SQLite projects, streaming profiling, and persistent type overrides**. The existing Model, Generate, and Runs tabs still use their original fixtures and simulations; they do not use uploaded data or connect to SQL Server yet.
+DataForge is a Next.js App Router workspace for turning CSV/Excel data into a warehouse model. Uploads, profiling, type overrides, model suggestions, and model edits use real local data and SQLite persistence. Generate and Runs retain their original fixtures and simulations; they do not generate scripts from your saved model or connect to SQL Server yet.
 
 ## Run
 
@@ -37,6 +37,10 @@ Use the existing isolated checkout; no worktree is necessary. `pnpm-workspace.ya
 3. Enter a name and continue. The progress bar measures bytes uploaded; the final transfer state shows profiling until the server responds.
 4. The app redirects to `/projects/<projectId>/profile`. Review counts, inferred types, null percentages, distinct/duplicate counts, min/max, and candidate keys.
 5. Change a type and choose **Save overrides**. Refresh or restart the server: the override and project remain saved.
+6. Open **Model**. The first visit creates and saves a rules-based suggestion from the uploaded data. Rename tables or columns, move columns, choose business keys and aggregations, and edit the grain. Wait for **Saved**, then refresh to verify persistence.
+7. Use **Suggested model** to regenerate from the current profile and type overrides. Confirm before replacing your draft. The validation panel keeps incomplete drafts visible while you edit.
+
+The Superstore sample has consistent customer-to-segment and product-to-category relationships. Its suggested model is `fact_sales` with Sales, Quantity, Discount (`AVG`), and Profit; a generated `dim_date`; customer, product, and region dimensions; and Order ID retained on the fact as a degenerate dimension. `samples/ircc-style.csv` is a small synthetic immigration-style dataset without a date column, for checking suggestions without a calendar dimension.
 
 Bad file types, empty/malformed files, server errors, and files over 50 MB show an error in the upload form. Ragged CSV rows remain in the dataset and are counted/reported above the profile table; missing fields count as empty and extra fields are ignored. Returning to Projects shows persisted imports and their actual row/column counts.
 
@@ -46,14 +50,16 @@ The target database dropdown is still a preview setting: uploads do not connect 
 
 Default paths are relative to the repository root:
 
-- `data/dataforge.db` — SQLite metadata, profiles, and overrides.
+- `data/dataforge.db` — SQLite projects, profiles, overrides, and saved models.
 - `data/dataforge.db-wal` / `data/dataforge.db-shm` — SQLite WAL files while the database is open.
 - `data/uploads/<projectId>/<sanitized-filename>.csv` or `.xlsx` — original source file.
-- `data/uploads/<projectId>/profile-report.json` — delimiter and ragged-row report.
+- `data/uploads/<projectId>/profile-report.json` — delimiter/ragged-row report and bounded paired rows used to evaluate model relationships.
 
-The entire `data/` directory is gitignored. Preserve this directory on persistent local storage when restarting or deploying the app. Do not place uploads in `public/`. `DATAFORGE_DATA_DIR` can optionally select a different data directory; automated checks use temporary directories so they never seed or remove your own projects. No data migration or sample-data import runs during build.
+The entire `data/` directory is gitignored. Preserve this directory on persistent local storage when restarting or deploying the app. Do not place uploads in `public/`. `DATAFORGE_DATA_DIR` can optionally select a different data directory; automated checks use temporary directories so they never seed or remove your own projects. No sample-data import or data migration runs during build.
 
-SQLite uses Node's built-in `DatabaseSync` with the `projects` and `column_profiles` tables in `lib/server/db.ts`, foreign keys, WAL, and parameterized transactional writes. Existing `data/dataforge.db` files work unchanged; no migration or re-import is needed. Samples are JSON-encoded text in `column_profiles.sample_values`; inferred types and override types are stored separately. Source files are retained when imports succeed; failed imports clean up their new upload directory and do not create a project.
+SQLite uses Node's built-in `DatabaseSync` with the `projects`, `column_profiles`, and `models` tables in `lib/server/db.ts`, foreign keys, WAL, and parameterized transactional writes. Existing databases are upgraded with additive schema changes when opened. Older uploads are reprofiled lazily from their retained source file to capture table statistics and relationship evidence; existing type overrides and saved edits are preserved. Samples are JSON-encoded text in `column_profiles.sample_values`; inferred types and override types are stored separately. Source files are retained when imports succeed; failed imports clean up their new upload directory and do not create a project.
+
+`projects.duplicate_row_count` counts extra occurrences of fully identical normalized rows, and `projects.total_null_cells` counts blank/missing cells over the complete source. Overview shows these alongside row and column counts. `models` stores one Zod-validated JSON document per project, its `suggested`/`edited` source, and `updated_at`. Model drafts remain saved even when the validation panel reports incomplete modeling decisions.
 
 ## Profiling behavior
 
@@ -61,7 +67,8 @@ SQLite uses Node's built-in `DatabaseSync` with the `projects` and `column_profi
 
 - CSV uses `csv-parse` in one streamed pass. Commas, semicolons, and tabs are detected outside quoted fields; quoted delimiters/newlines, UTF-8 BOM, and ragged rows are supported. Invalid UTF-8 or malformed quoting produces an actionable import error.
 - A header row and at least one data row are required. Blank lines are skipped; whitespace-only fields count as null. Values are trimmed before profiling. Blank header cells receive a generated column name; column ordinals distinguish repeated headers.
-- Exact distinct counts and non-null duplicate counts are computed over the complete dataset. Five distinct non-null sample values are retained. Null percentage uses all data rows. A key candidate requires no nulls and a distinct count equal to row count.
+- Exact distinct counts and non-null duplicate counts are computed over the complete dataset. Five distinct non-null sample values are retained. Null percentage uses all data rows. **Key** requires no nulls and every value distinct. **Near-key** requires no nulls and at least 99.5% distinct values, excluding exact keys. Flags use exact counts, rather than rounded null percentages.
+- Full-row duplicate detection uses SHA-256 fingerprints of normalized header-width rows: trimmed cells, blanks/missing fields as null, and extra ragged fields ignored. Total null cells and row statistics cover the entire dataset. Paired values for model suggestions retain the first 5,000 rows, capped at 4 MiB of JSON; column-level samples alone are never used to invent relationships.
 - Type inference inspects the **first 1,000 non-null values**, requiring a **95% match**. Types are integer, decimal, date, boolean, and text. Explicit true/false/yes/no values are boolean; numeric 0/1 stays integer. Integer and decimal min/max use exact numeric ordering; date min/max use chronological ordering. Non-matching minority values remain counted but are excluded from typed bounds.
 - Dates use validated ISO dates/timestamps or US `MM/DD/YYYY`; invalid calendar dates are not guessed. Timestamps without a timezone are treated as UTC.
 - XLSX uses the `xlsx` package and profiles the **first worksheet**. It is workbook-based rather than streamed. Limits: 50 MB uploaded file, 256 MB expanded ZIP content, 10,000 columns, 1,000,000 data rows, and 2,000,000 worksheet cells. ZIP64/encrypted or invalid workbooks are unsupported; export larger workbooks as CSV. CSV permits up to 10,000 columns.
@@ -69,34 +76,48 @@ SQLite uses Node's built-in `DatabaseSync` with the `projects` and `column_profi
 
 The UI retains its existing SQL-oriented type labels: `INT`, `DECIMAL`, `DATE`, `BOOLEAN`, and `VARCHAR`. The API and database use `integer`, `decimal`, `date`, `boolean`, and `text`. Selecting the originally inferred type clears a previous override.
 
+## Model suggestions and editing
+
+`lib/modeling/suggest.ts` contains pure functions with no database or filesystem access. Suggestions use the effective column types, exact profile statistics, and paired sampled rows:
+
+- Date columns share a generated calendar dimension with a `DateKey` link for each source date.
+- Numeric columns become measures unless their names end in ID, key, code, or number, or they are key candidates. Discount, rate, pct, ratio, and price measures use `AVG` and are tagged non-additive; other measures default to `SUM`.
+- Unique or near-unique text identifiers named for orders, invoices, transactions, or IDs stay on the fact as degenerate dimensions.
+- Repeated text determinants group related attributes into dimensions when at least 99% of comparable rows agree with one dependent value per determinant value. Unique identifiers do not create vacuous dependencies. Other text columns receive their own dimensions. Reasons identify whether evidence covers sampled or complete rows.
+- Dependency analysis checks at most 20,000 candidate pairs or 5,000,000 sampled row visits. If that budget is reached, a warning explains that unchecked columns remain separate dimensions for manual review.
+- Grain follows a degenerate identifier or the finest dimension combination. Duplicate source rows produce a warning and a persisted **Remove exact duplicates** option. This option records modeling intent; it does not modify the uploaded file or execute a load.
+
+Table/column names, assignments, aggregation (`SUM`, `AVG`, `COUNT`, `MIN`, `MAX`), business keys, grain, and duplicate-removal intent are saved after a short debounce. The editor serializes writes, reports failures, and offers a retry. The live SVG uses the current model. Validation reports missing measures/business keys/grain, repeated assignments or table names, unassigned columns, and relationship issues. Regenerating explicitly replaces the saved model with a fresh suggestion; changing profile types alone does not discard edits.
+
 ## APIs
 
 All handlers run on Node.js. Zod validates names, IDs, multipart fields, and overrides. JSON errors have the form `{ "error": "message" }` and a non-success HTTP status. Native request/body limits are enforced on the server independently of client validation or a declared Content-Length.
 
-| Endpoint                           | Behavior                                                                                                                      |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/projects`                | `{ projects: StoredProject[] }` from SQLite.                                                                                  |
-| `POST /api/projects`               | Multipart fields `name`, `file`, optional `targetDatabase`. Saves/profiles the source and returns `201 { project, profile }`. |
-| `GET /api/projects/<id>/profile`   | `{ project, columns, report }`, including samples, inferred/override types, and ragged-row examples.                          |
-| `PATCH /api/projects/<id>/profile` | JSON `{ overrides: [{ ordinal: 0, type: "text" }] }`; use `null` to reset. Returns `{ columns }`. The batch is atomic.        |
+| Endpoint                                | Behavior                                                                                                                      |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/projects`                     | `{ projects: StoredProject[] }` from SQLite.                                                                                  |
+| `POST /api/projects`                    | Multipart fields `name`, `file`, optional `targetDatabase`. Saves/profiles the source and returns `201 { project, profile }`. |
+| `GET /api/projects/<id>/profile`        | `{ project, columns, report }`, including samples, inferred/override types, and ragged-row examples.                          |
+| `PATCH /api/projects/<id>/profile`      | JSON `{ overrides: [{ ordinal: 0, type: "text" }] }`; use `null` to reset. Returns `{ columns }`. The batch is atomic.        |
+| `GET /api/projects/<id>/model`          | Returns `{ model, source, updatedAt, validation }`; generates and stores a suggestion only when none exists.                  |
+| `PUT /api/projects/<id>/model`          | JSON `{ model }`; validates structure and source references, then persists an edited draft and returns the saved record.      |
+| `POST /api/projects/<id>/model/suggest` | Regenerates from the current profile, replaces the saved model, and returns a `suggested` record.                             |
 
-Storage contracts are in `lib/server/projects.ts`, profiler contracts in `lib/profiler/types.ts`, and UI contracts in `lib/types.ts`. `lib/data/index.ts` adapts live storage reads to the current UI. Projects and project routes render dynamically, so new imports and overrides appear without rebuilding.
+Storage contracts are in `lib/server/projects.ts`, profiler contracts in `lib/profiler/types.ts`, model contracts in `lib/modeling/types.ts`, and UI profile/project contracts in `lib/types.ts`. `lib/data/index.ts` adapts live storage reads to the current UI. Projects and project routes render dynamically, so imports, overrides, and saved models appear without rebuilding.
 
 ## Later phases
 
-`lib/data/mock.ts` retains the original Model, Generate, and Runs fixtures. The Model page's profile import points explicitly to that fixture module so a real upload cannot change or break the existing demo model. No Model editor, SQL generation, run execution, or run history behavior is implemented or changed in this phase. Their tabs remain reachable from each real project. The landing illustration also remains an illustration. Connection settings remain a frontend-only preview.
+`lib/data/mock.ts` retains the original fixtures for Generate and Runs. SQL generation, run execution, and run history behavior are unchanged in this phase. Their tabs remain reachable from each real project, but still preview the original demo scripts and runs. The landing illustration also remains an illustration. Connection settings remain a frontend-only preview.
 
 Future integration points:
 
-- `components/model-editor.tsx`: persist reducer state and suggestions against real column ordinals.
-- `getInitialModel`, `getSuggestedModel`: replace fixture model adapters.
 - `getGeneratedFiles`, `components/generate-controls.tsx`: generate SQL for a persisted model and run real loads.
 - `getRuns`, `components/runs-table.tsx`: persist execution logs and rejected rows.
 - `components/settings-form.tsx`: manage real connections securely.
 
 ## Validation and architecture
 
-Vitest covers inference thresholds and the 1,000-value limit, null/duplicate/key metrics, dates, numeric ordering, BOM and delimiters, quoted fields/newlines, ragged rows, invalid files, sample profiling, real XLSX parsing, SQLite persistence across reopen, atomic overrides, filename confinement, and server upload limits. Tests use temporary storage, not `data/`.
+Vitest covers inference thresholds, null/duplicate/key and near-key metrics, complete-row statistics, bounded paired sampling, dates and numeric ordering, CSV edge cases, XLSX parsing, every model suggestion rule, functional-dependency thresholds, model validation and editor moves, both sample datasets, SQLite persistence, additive migrations/backfill, atomic overrides, validated model APIs, and server input limits. Tests use temporary storage, not `data/`.
 
 Server Components load data through `lib/data/`; interactive leaves handle upload, filters, type saves, theming, and menus. The existing design, routes, dark default, light mode, keyboard menus, focus rings, reduced motion, skeletons, and error boundaries are retained. The UI primitives are the Button and Radix-backed DropdownMenu in `components/ui/`.
 

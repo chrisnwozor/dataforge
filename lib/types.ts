@@ -13,6 +13,8 @@ export interface Project {
   updatedAt: string;
   activity: number[];
   stage: number;
+  duplicateRows?: number | null;
+  totalNullCells?: number | null;
 }
 export type ColumnType = "VARCHAR" | "INT" | "DECIMAL" | "DATE" | "BOOLEAN";
 export interface ColumnProfile {
@@ -29,6 +31,8 @@ export interface ColumnProfile {
   min: string;
   max: string;
   keyCandidate: boolean;
+  nearKeyCandidate?: boolean;
+  nullCount?: number;
 }
 export interface FactTable {
   name: string;

@@ -1,9 +1,22 @@
 import {
-  findProject, readColumnProfiles, readProfileReport, updateColumnOverrides,
-  ProjectNotFoundError, InvalidColumnError,
-  type StoredProject, type StoredColumnProfile, type ProfileReport,
+  findProject,
+  readColumnProfiles,
+  readProfileReport,
+  updateColumnOverrides,
+  ensureProjectEvidence,
+  ProjectNotFoundError,
+  InvalidColumnError,
+  type StoredProject,
+  type StoredColumnProfile,
+  type ProfileReport,
 } from "@/lib/server/projects";
-import { errorResponse, HttpError, overridesSchema, projectIdSchema, boundedBody } from "@/lib/server/http";
+import {
+  errorResponse,
+  HttpError,
+  overridesSchema,
+  projectIdSchema,
+  boundedBody,
+} from "@/lib/server/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +27,9 @@ export interface ProjectProfileResponse {
   columns: StoredColumnProfile[];
   report: ProfileReport;
 }
-export interface OverrideProfileResponse { columns: StoredColumnProfile[] }
+export interface OverrideProfileResponse {
+  columns: StoredColumnProfile[];
+}
 
 async function requireProject(context: ProjectContext): Promise<StoredProject> {
   const { id } = await context.params;
@@ -22,10 +37,13 @@ async function requireProject(context: ProjectContext): Promise<StoredProject> {
   if (!parsed.success) throw new HttpError(400, "Invalid project ID.");
   const project = findProject(parsed.data);
   if (!project) throw new HttpError(404, "Project not found.");
-  return project;
+  return ensureProjectEvidence(project.id);
 }
 
-export async function GET(_request: Request, context: ProjectContext): Promise<Response> {
+export async function GET(
+  _request: Request,
+  context: ProjectContext,
+): Promise<Response> {
   try {
     const project = await requireProject(context);
     return Response.json({
@@ -34,14 +52,25 @@ export async function GET(_request: Request, context: ProjectContext): Promise<R
       report: readProfileReport(project.id),
     } satisfies ProjectProfileResponse);
   } catch (error) {
-    return errorResponse(error, "The project profile could not be loaded. Try again.");
+    return errorResponse(
+      error,
+      "The project profile could not be loaded. Try again.",
+    );
   }
 }
 
-export async function PATCH(request: Request, context: ProjectContext): Promise<Response> {
+export async function PATCH(
+  request: Request,
+  context: ProjectContext,
+): Promise<Response> {
   try {
     const project = await requireProject(context);
-    if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+    if (
+      !request.headers
+        .get("content-type")
+        ?.toLowerCase()
+        .startsWith("application/json")
+    ) {
       throw new HttpError(415, "Send type overrides as JSON.");
     }
     let body: unknown;
@@ -53,11 +82,28 @@ export async function PATCH(request: Request, context: ProjectContext): Promise<
       throw new HttpError(400, "The type override request is not valid JSON.");
     }
     const parsed = overridesSchema.safeParse(body);
-    if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid type overrides.");
-    return Response.json({ columns: updateColumnOverrides(project.id, parsed.data.overrides) } satisfies OverrideProfileResponse);
+    if (!parsed.success)
+      throw new HttpError(
+        400,
+        parsed.error.issues[0]?.message ?? "Invalid type overrides.",
+      );
+    return Response.json({
+      columns: updateColumnOverrides(project.id, parsed.data.overrides),
+    } satisfies OverrideProfileResponse);
   } catch (error) {
-    if (error instanceof ProjectNotFoundError) return errorResponse(new HttpError(404, error.message), "Project not found.");
-    if (error instanceof InvalidColumnError) return errorResponse(new HttpError(400, error.message), "Invalid column.");
-    return errorResponse(error, "Type overrides could not be saved. Try again.");
+    if (error instanceof ProjectNotFoundError)
+      return errorResponse(
+        new HttpError(404, error.message),
+        "Project not found.",
+      );
+    if (error instanceof InvalidColumnError)
+      return errorResponse(
+        new HttpError(400, error.message),
+        "Invalid column.",
+      );
+    return errorResponse(
+      error,
+      "Type overrides could not be saved. Try again.",
+    );
   }
 }

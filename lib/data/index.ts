@@ -1,19 +1,29 @@
 import type { Project, ColumnProfile, Activity } from "@/lib/types";
 import type { InferredType } from "@/lib/profiler";
+import { HttpError } from "@/lib/server/http";
 import {
   listProjects,
   findProject,
   readColumnProfiles,
   readProfileReport,
+  ensureProjectEvidence,
   type StoredProject,
 } from "@/lib/server/projects";
 
-export {
-  getSuggestedModel,
-  getInitialModel,
-  getRuns,
-  getGeneratedFiles,
-} from "./mock";
+import {
+  createModelSuggestion,
+  getOrCreateModel,
+  readSavedModel,
+} from "@/lib/server/models";
+
+export { getRuns, getGeneratedFiles } from "./mock";
+
+export async function getInitialModel(id: string) {
+  return (await getOrCreateModel(id)).model;
+}
+export async function getSuggestedModel(id: string) {
+  return createModelSuggestion(id);
+}
 
 const uiType: Record<InferredType, ColumnProfile["type"]> = {
   integer: "INT",
@@ -35,6 +45,13 @@ function relativeTime(timestamp: string): string {
   return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 function toProject(project: StoredProject): Project {
+  let savedModel: ReturnType<typeof readSavedModel>;
+  try {
+    savedModel = readSavedModel(project.id);
+  } catch (error) {
+    // A damaged draft must not hide the source project or block its other tabs.
+    if (!(error instanceof HttpError) || error.status !== 500) throw error;
+  }
   return {
     id: project.id,
     name: project.name,
@@ -45,10 +62,12 @@ function toProject(project: StoredProject): Project {
     rows: project.rowCount,
     columns: project.columnCount,
     updatedAt: relativeTime(project.updatedAt),
-    tables: 0,
+    tables: savedModel ? 1 + savedModel.model.dimensions.length : 0,
     lastRun: "Not run yet",
     activity: [],
-    stage: 2,
+    stage: savedModel ? 3 : 2,
+    duplicateRows: project.duplicateRowCount,
+    totalNullCells: project.totalNullCells,
   };
 }
 export async function getProjects(): Promise<Project[]> {
@@ -56,9 +75,10 @@ export async function getProjects(): Promise<Project[]> {
 }
 export async function getProject(id: string): Promise<Project | undefined> {
   const project = findProject(id);
-  return project ? toProject(project) : undefined;
+  return project ? toProject(await ensureProjectEvidence(id)) : undefined;
 }
 export async function getColumnProfiles(id: string): Promise<ColumnProfile[]> {
+  if (findProject(id)) await ensureProjectEvidence(id);
   return readColumnProfiles(id).map((column) => ({
     id: String(column.ordinal),
     ordinal: column.ordinal,
@@ -72,10 +92,13 @@ export async function getColumnProfiles(id: string): Promise<ColumnProfile[]> {
     min: column.minValue ?? "—",
     max: column.maxValue ?? "—",
     keyCandidate: column.isKeyCandidate,
+    nearKeyCandidate: column.isNearKeyCandidate,
+    nullCount: column.nullCount,
     sampleValues: column.sampleValues,
   }));
 }
 export async function getProfileReport(id: string) {
+  if (findProject(id)) await ensureProjectEvidence(id);
   return readProfileReport(id);
 }
 export async function getActivity(id: string): Promise<Activity[]> {

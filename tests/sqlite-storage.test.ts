@@ -35,6 +35,8 @@ function project(): StoredProject {
     status: "Ready",
     rowCount: 2,
     columnCount: 1,
+    duplicateRowCount: 0,
+    totalNullCells: 0,
     createdAt: "2026-10-27T12:00:00.000Z",
     updatedAt: "2026-10-27T12:00:00.000Z",
   };
@@ -44,6 +46,10 @@ function profile(): ProfileResult {
   return {
     rowCount: 2,
     columnCount: 1,
+    duplicateRowCount: 0,
+    totalNullCells: 0,
+    sampledRows: [["1"], ["2"]],
+    sampledRowsTruncated: false,
     raggedRowCount: 0,
     raggedRowExamples: [],
     delimiter: ",",
@@ -53,11 +59,13 @@ function profile(): ProfileResult {
         name: "ID",
         inferredType: "integer",
         nullPct: 0,
+        nullCount: 0,
         distinctCount: 2,
         duplicateCount: 0,
         minValue: "1",
         maxValue: "2",
         isKeyCandidate: true,
+        isNearKeyCandidate: false,
         sampleValues: ["1", "2"],
       },
     ],
@@ -179,7 +187,11 @@ describe("built-in SQLite storage", () => {
       existing.close();
     }
 
-    expect(findProject(saved.id)).toEqual(saved);
+    expect(findProject(saved.id)).toEqual({
+      ...saved,
+      duplicateRowCount: null,
+      totalNullCells: null,
+    });
     expect(readColumnProfiles(saved.id)).toEqual([
       { ...profile().columns[0], overrideType: null },
     ]);
