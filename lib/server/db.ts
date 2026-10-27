@@ -53,6 +53,8 @@ export function getDatabase(): DatabaseSync {
         is_key_candidate INTEGER NOT NULL CHECK (is_key_candidate IN (0, 1)),
         is_near_key_candidate INTEGER NOT NULL DEFAULT 0 CHECK (is_near_key_candidate IN (0, 1)),
         sample_values TEXT NOT NULL,
+        max_length INTEGER CHECK (max_length >= 0),
+        max_decimal_places INTEGER CHECK (max_decimal_places >= 0 AND max_decimal_places <= 6),
         PRIMARY KEY (project_id, ordinal)
       );
       CREATE TABLE IF NOT EXISTS models (
@@ -92,6 +94,14 @@ export function getDatabase(): DatabaseSync {
       if (!profileColumns.has("is_near_key_candidate"))
         database.exec(
           "ALTER TABLE column_profiles ADD COLUMN is_near_key_candidate INTEGER NOT NULL DEFAULT 0 CHECK (is_near_key_candidate IN (0, 1))",
+        );
+      if (!profileColumns.has("max_length"))
+        database.exec(
+          "ALTER TABLE column_profiles ADD COLUMN max_length INTEGER CHECK (max_length >= 0)",
+        );
+      if (!profileColumns.has("max_decimal_places"))
+        database.exec(
+          "ALTER TABLE column_profiles ADD COLUMN max_decimal_places INTEGER CHECK (max_decimal_places >= 0 AND max_decimal_places <= 6)",
         );
       database.exec("COMMIT");
     } catch (error) {

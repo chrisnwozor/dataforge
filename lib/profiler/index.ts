@@ -14,6 +14,7 @@ import {
   TYPE_SAMPLE_LIMIT,
 } from "./inference";
 import type { InferredType, ProfileColumn, ProfileResult } from "./types";
+import type { Range, WorkSheet } from "xlsx";
 
 export { inferType } from "./inference";
 export type { InferredType, ProfileColumn, ProfileResult } from "./types";
@@ -40,6 +41,23 @@ interface ColumnState {
   samples: string[];
   inference: string[];
   bounds: Partial<Record<InferredType, Bounds>>;
+  maxLength: number;
+  maxDecimalPlaces: number;
+}
+
+/** Read decimal scale without allocating exponent-sized strings or powers. */
+function observedDecimalPlaces(value: string): number {
+  if (decimalValue(value) === null) return 0;
+  const normalized = value.replaceAll(",", "");
+  const match = /^[+-]?(?:\d+(?:\.(\d*))?|\.(\d+))(?:e([+-]?\d+))?$/i.exec(
+    normalized,
+  );
+  if (!match) return 0;
+  const fraction = (match[1] ?? match[2] ?? "").length;
+  const exponent = match[3] ?? "0";
+  const exponentDigits = exponent.replace(/^[+-]?0*/, "");
+  if (exponentDigits.length > 12) return exponent.startsWith("-") ? 6 : 0;
+  return Math.min(6, Math.max(0, fraction - Number(exponent)));
 }
 
 function updateBounds(
@@ -202,6 +220,8 @@ class ProfileAccumulator {
         samples: [],
         inference: [],
         bounds: {},
+        maxLength: 0,
+        maxDecimalPlaces: 0,
       }));
       return;
     }
@@ -218,8 +238,14 @@ class ProfileAccumulator {
     const normalizedRow: (string | null)[] = [];
     this.columns.forEach((column, ordinal) => {
       const raw = record[ordinal];
-      const value =
-        raw instanceof Date ? raw.toISOString() : String(raw ?? "").trim();
+      const rawValue =
+        raw instanceof Date ? raw.toISOString() : String(raw ?? "");
+      column.maxLength = Math.max(column.maxLength, rawValue.length);
+      const value = rawValue.trim();
+      column.maxDecimalPlaces = Math.max(
+        column.maxDecimalPlaces,
+        observedDecimalPlaces(value),
+      );
       normalizedRow.push(value === "" ? null : value);
       if (value === "") {
         column.nulls++;
@@ -290,6 +316,8 @@ class ProfileAccumulator {
           column.distinct.size < column.nonNulls &&
           column.distinct.size * 1000 >= column.nonNulls * 995,
         sampleValues: column.samples,
+        maxLength: column.maxLength,
+        maxDecimalPlaces: column.maxDecimalPlaces,
       };
     });
     return {
@@ -590,7 +618,10 @@ async function checkWorkbookArchive(filePath: string): Promise<Buffer> {
   return archive;
 }
 
-async function profileXlsx(filePath: string): Promise<ProfileResult> {
+/** Reuse the same bounded archive/worksheet checks for streamed cleaned XLSX exports. */
+export async function readFirstWorksheet(
+  filePath: string,
+): Promise<{ sheet: WorkSheet; range: Range }> {
   const archive = await checkWorkbookArchive(filePath);
   const XLSX = await import("xlsx");
   const workbook = XLSX.read(archive, {
@@ -618,6 +649,12 @@ async function profileXlsx(filePath: string): Promise<ProfileResult> {
     throw new Error(
       "The first worksheet exceeds the 2,000,000 cell profiling budget. Remove distant empty cells or export a smaller range as CSV.",
     );
+  return { sheet, range };
+}
+
+async function profileXlsx(filePath: string): Promise<ProfileResult> {
+  const { sheet, range } = await readFirstWorksheet(filePath);
+  const XLSX = await import("xlsx");
   const accumulator = new ProfileAccumulator();
   // Walk worksheet cells directly rather than creating a second full matrix in memory.
   for (let row = range.s.r; row <= range.e.r; row++) {

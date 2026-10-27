@@ -179,8 +179,8 @@ export default async function Overview({
       <div className="info-banner">
         <History size={15} />
         <span>
-          Upload, profiling, and modeling use your source file. SQL generation
-          and run history remain previews for now.
+          Upload, profiling, modeling, and SQL generation use your source file.
+          Run history remains a preview for now.
         </span>
         <Link href={`/projects/${id}/runs`}>
           Explore run history <ArrowRight size={12} />

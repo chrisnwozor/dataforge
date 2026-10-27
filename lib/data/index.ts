@@ -2,6 +2,10 @@ import type { Project, ColumnProfile, Activity } from "@/lib/types";
 import type { InferredType } from "@/lib/profiler";
 import { HttpError } from "@/lib/server/http";
 import {
+  getGeneration,
+  type GenerationRequestOptions,
+} from "@/lib/server/generation";
+import {
   listProjects,
   findProject,
   readColumnProfiles,
@@ -16,7 +20,14 @@ import {
   readSavedModel,
 } from "@/lib/server/models";
 
-export { getRuns, getGeneratedFiles } from "./mock";
+export { getRuns } from "./mock";
+
+export async function getGeneratedFiles(
+  id: string,
+  options?: GenerationRequestOptions,
+) {
+  return (await getGeneration(id, options)).files;
+}
 
 export async function getInitialModel(id: string) {
   return (await getOrCreateModel(id)).model;

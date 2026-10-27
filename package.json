@@ -20,6 +20,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "csv-parse": "^7.0.3",
+    "fflate": "^0.8.3",
     "geist": "^1.4.2",
     "lucide-react": "^0.468.0",
     "next": "latest",
@@ -37,6 +38,7 @@
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "latest",
+    "node-sql-parser": "^5.4.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.0",
     "vitest": "^5.0.5"

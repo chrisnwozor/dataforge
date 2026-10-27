@@ -2101,6 +2101,143 @@ select {
   gap: 8px;
   margin-top: 20px;
 }
+
+/* SQL generation uses the existing viewer and panel styles. */
+.generate-code-column {
+  min-width: 0;
+}
+.generate-code-toolbar,
+.generate-code-footer {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.generate-code-language {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.generate-code-actions {
+  flex-wrap: wrap;
+}
+.generate-code-lines {
+  max-height: 650px;
+}
+.generate-summary {
+  margin-top: 14px;
+}
+.generate-summary .panel-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.generate-summary p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+.generate-empty-code {
+  min-height: 360px;
+  font-size: 12px;
+  padding: 24px;
+  text-align: center;
+}
+.generate-status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  min-height: 28px;
+  margin-bottom: 12px;
+}
+.generate-validation-banner {
+  margin: 0 0 18px;
+  align-items: flex-start;
+}
+.generate-validation-banner > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--amber);
+}
+.generate-validation-banner > div {
+  flex: 1;
+  min-width: 0;
+}
+.generate-validation-banner ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  overflow-wrap: anywhere;
+}
+.generate-validation-banner > a {
+  white-space: nowrap;
+}
+.generate-request-error {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--red);
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+}
+.generate-database-label {
+  display: block;
+  margin: 18px 0 7px;
+  font-size: 11px;
+}
+.generate-database-input {
+  width: 100%;
+  min-width: 0;
+  font-size: 11px;
+}
+.generate-option-row {
+  gap: 10px;
+  margin-top: 20px;
+  font-size: 11px;
+}
+.generate-option-row > span {
+  min-width: 0;
+}
+.generate-option-row > button {
+  flex-shrink: 0;
+}
+.generate-option-help {
+  font-size: 10px;
+  margin: 8px 0 16px;
+  line-height: 1.8;
+}
+.generate-dedupe-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -5px 0 20px;
+  font-size: 9px;
+}
+.generate-run-disabled {
+  display: block;
+  cursor: not-allowed;
+}
+@media (max-width: 760px) {
+  .generate-code-toolbar {
+    padding: 9px;
+  }
+  .generate-code-actions {
+    gap: 1px;
+  }
+  .generate-code-actions .button {
+    font-size: 9px;
+    gap: 4px;
+    padding: 5px 7px;
+  }
+  .generate-validation-banner {
+    flex-wrap: wrap;
+  }
+  .generate-request-error {
+    flex-wrap: wrap;
+  }
+}
 @media (max-width: 760px) {
   .model-save-status {
     min-width: 55px;
