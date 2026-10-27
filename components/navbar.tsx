@@ -1,7 +1,6 @@
 import { IntentLink as Link } from "./intent-link";
 import { Command, Layers2, ArrowUpRight } from "lucide-react";
-import { getProjects } from "@/lib/data";
-import { ProjectSwitcher } from "./project-switcher";
+import { WorkspaceSwitcher } from "./project-switcher";
 import { ThemeToggle } from "./theme-provider";
 export function Brand() {
   return (
@@ -15,16 +14,13 @@ export function Brand() {
     </Link>
   );
 }
-export async function Navbar() {
-  const projects = await getProjects();
+export function Navbar() {
   return (
     <header className="navbar">
       <div className="nav-left">
         <Brand />
         <span className="nav-slash">/</span>
-        <ProjectSwitcher
-          projects={projects.map(({ id, name }) => ({ id, name }))}
-        />
+        <WorkspaceSwitcher />
       </div>
       <div className="nav-right">
         <a

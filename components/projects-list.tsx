@@ -17,6 +17,7 @@ import type { Project } from "@/lib/types";
 import { number } from "@/lib/utils";
 import { StatusBadge, DataTable, EmptyState } from "./shared";
 import { Button } from "./ui/button";
+import { SelectMenu } from "./select-menu";
 function Sparkline({ values }: { values: number[] }) {
   if (!values.length)
     return (
@@ -92,36 +93,36 @@ export function ProjectsList({ projects }: { projects: Project[] }) {
               aria-label="Search projects"
             />
           </label>
-          <select
-            aria-label="Filter by status"
+          <SelectMenu
+            label="Filter by status"
             value={status}
-            onChange={(e) => setStatus(e.target.value)}
+            onValueChange={setStatus}
+            options={["All statuses", "Ready", "Needs review", "Draft"].map(
+              (value) => ({ value, label: value }),
+            )}
             style={{ fontSize: 11, height: 36, maxWidth: 135 }}
-          >
-            {["All statuses", "Ready", "Needs review", "Draft"].map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
+          />
         </div>
         <div className="toolbar-right">
-          <label className="muted small" htmlFor="project-sort">
-            Sort by
-          </label>
-          <select
+          <span className="muted small">Sort by</span>
+          <SelectMenu
             id="project-sort"
+            label="Sort by"
             value={sort}
-            onChange={(e) => setSort(e.target.value)}
+            onValueChange={setSort}
+            align="end"
             style={{
               fontSize: 11,
               height: 34,
               border: 0,
               background: "transparent",
             }}
-          >
-            <option value="recent">Last updated</option>
-            <option value="name">Name</option>
-            <option value="rows">Row count</option>
-          </select>
+            options={[
+              { value: "recent", label: "Last updated" },
+              { value: "name", label: "Name" },
+              { value: "rows", label: "Row count" },
+            ]}
+          />
           <div className="layout-controls">
             <button
               aria-label="Grid view"

@@ -67,14 +67,14 @@ a,
 input,
 select,
 textarea {
-  outline-offset: 4px;
+  outline-offset: 2px;
 }
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 1px solid #a3a3a3;
 }
 a {
   color: inherit;
@@ -1885,38 +1885,4 @@ select {
     transition: none !important;
     scroll-behavior: auto !important;
   }
-}
-
-.workspace-switch {
-  position: relative;
-}
-.workspace-switch select {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font-size: 12px;
-  width: 150px;
-  max-width: 190px;
-  text-overflow: ellipsis;
-  color: var(--text);
-}
-.workspace-switch select option {
-  background: var(--surface);
-  color: var(--text);
-}
-@media (max-width: 760px) {
-  .workspace-switch select {
-    position: absolute;
-    inset: 0;
-    width: 25px;
-    max-width: 25px;
-    opacity: 0;
-  }
-}
-
-.workspace-switch:focus-within {
-  outline: 2px solid var(--blue);
-  outline-offset: 4px;
-  border-radius: 4px;
 }

@@ -1,38 +1,49 @@
 "use client";
-import { usePathname, useRouter } from "next/navigation";
+
+import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-export function ProjectSwitcher({
-  projects,
-}: {
-  projects: { id: string; name: string }[];
-}) {
-  const path = usePathname();
-  const router = useRouter();
-  const id = path.split("/")[2];
-  const selected = projects.some((p) => p.id === id) ? id : "";
+import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "./ui/dropdown-menu";
+import styles from "./ui/dropdown-menu.module.css";
+
+const workspaces = ["Acme workspace", "Personal"];
+
+export function WorkspaceSwitcher() {
+  const [workspace, setWorkspace] = useState(workspaces[0]);
+  const initials = workspace === "Personal" ? "P" : "AC";
   return (
-    <div className="workspace-switch">
-      <span className="workspace-avatar" aria-hidden="true">
-        AC
-      </span>
-      <select
-        aria-label="Switch project"
-        value={selected}
-        onChange={(e) =>
-          router.push(
-            e.target.value ? `/projects/${e.target.value}` : "/projects",
-          )
-        }
-      >
-        <option value="">Acme workspace</option>
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-      <span className="plan-badge">Hobby</span>
-      <ChevronDown size={13} aria-hidden="true" />
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn("workspace-switch", styles.workspaceTrigger)}
+          aria-label={`Switch workspace: ${initials} ${workspace} Hobby`}
+        >
+          <span className="workspace-avatar" aria-hidden="true">
+            {initials}
+          </span>{" "}
+          <span className={styles.workspaceName}>{workspace}</span>{" "}
+          <span className="plan-badge" aria-hidden="true">
+            Hobby
+          </span>
+          <ChevronDown size={13} aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" aria-label="Workspaces">
+        <DropdownMenuRadioGroup value={workspace} onValueChange={setWorkspace}>
+          {workspaces.map((name) => (
+            <DropdownMenuRadioItem key={name} value={name}>
+              {name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

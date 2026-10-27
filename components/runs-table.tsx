@@ -11,6 +11,7 @@ import {
 import type { Run } from "@/lib/types";
 import { StatusBadge, DataTable, EmptyState } from "./shared";
 import { Button } from "./ui/button";
+import { SelectMenu } from "./select-menu";
 import { number } from "@/lib/utils";
 function RunSheet({ run, onClose }: { run: Run; onClose: () => void }) {
   const dialog = useRef<HTMLDivElement>(null);
@@ -174,17 +175,19 @@ export function RunsTable({ runs }: { runs: Run[] }) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </label>
-        <select
-          aria-label="Filter runs by status"
+        <SelectMenu
+          label="Filter runs by status"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onValueChange={setFilter}
           style={{ fontSize: 11 }}
-        >
-          <option value="all">All statuses</option>
-          <option>Success</option>
-          <option>Failed</option>
-          <option>Running</option>
-        </select>
+          options={[
+            { value: "all", label: "All statuses" },
+            ...["Success", "Failed", "Running"].map((value) => ({
+              value,
+              label: value,
+            })),
+          ]}
+        />
       </div>
       {visible.length ? (
         <DataTable>

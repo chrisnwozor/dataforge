@@ -82,7 +82,7 @@ Replace client-side simulations at these integration points:
 | `components/runs-table.tsx`        | Replace static log/rejected-row props with run detail reads if they become large.                                     |
 | `components/project-identity.tsx`  | Remove session-storage personalization once projects come from the real adapter.                                      |
 
-Presentational components are in `components/`; the only installed shadcn primitive is `components/ui/button.tsx` (native button and CVA variants). Navigation links prefetch on hover or keyboard focus to avoid loading every project tab at startup. The native project switcher is fully keyboard operable. Filters, sheets, copy/download, theming, and dnd are client leaves; layouts and route data loading remain Server Components. There is no authentication, API route, file parser, database driver, chart library, or backend implementation.
+Presentational components are in `components/`; the installed shadcn primitives are `components/ui/button.tsx` and `components/ui/dropdown-menu.tsx` (Radix-backed menus). Navigation links prefetch on hover or keyboard focus to avoid loading every project tab at startup. The workspace switcher and status/sort menus support keyboard navigation and mark the active option. Filters, sheets, copy/download, theming, and dnd are client leaves; layouts and route data loading remain Server Components. There is no authentication, API route, file parser, database driver, chart library, or backend implementation.
 
 ## Validation
 
