@@ -5,12 +5,14 @@ import { PageHeader } from "@/components/shared";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { ProjectsList } from "@/components/projects-list";
 import { buttonVariants } from "@/components/ui/button";
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 export const metadata = { title: "Projects" };
 export default async function ProjectsPage() {
   const projects = await getProjects();
   return (
     <>
-      <WorkspaceTabs />
+      <WorkspaceTabs count={projects.length} />
       <main className="container">
         <PageHeader
           eyebrow="YOUR WORKSPACE"

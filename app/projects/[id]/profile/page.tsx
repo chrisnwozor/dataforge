@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
-import { getColumnProfiles } from "@/lib/data";
+import { ArrowRight, TriangleAlert } from "lucide-react";
+import { getColumnProfiles, getProfileReport } from "@/lib/data";
 import { PageHeader } from "@/components/shared";
 import { ProfileTable } from "@/components/profile-table";
 import { buttonVariants } from "@/components/ui/button";
@@ -11,7 +11,10 @@ export default async function ProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const columns = await getColumnProfiles(id);
+  const [columns, report] = await Promise.all([
+    getColumnProfiles(id),
+    getProfileReport(id),
+  ]);
   return (
     <main className="container">
       <PageHeader
@@ -25,7 +28,26 @@ export default async function ProfilePage({
           </Link>
         }
       />
-      <ProfileTable columns={columns} />
+      {report.raggedRowCount > 0 && (
+        <div
+          className="info-banner"
+          role="status"
+          style={{ margin: "0 0 22px" }}
+        >
+          <TriangleAlert size={16} style={{ color: "var(--amber)" }} />
+          <span>
+            <strong>
+              {report.raggedRowCount.toLocaleString("en-US")} rows have a
+              different number of fields.
+            </strong>{" "}
+            They are included in the profile; missing fields count as empty and
+            extra fields are ignored.{" "}
+            {report.raggedRowExamples.length > 0 &&
+              `Examples: ${report.raggedRowExamples.map((row) => `row ${row.row} (${row.actual} fields, expected ${row.expected})`).join("; ")}.`}
+          </span>
+        </div>
+      )}
+      <ProfileTable key={id} columns={columns} projectId={id} />
     </main>
   );
 }

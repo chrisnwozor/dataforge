@@ -1,11 +1,13 @@
 "use client";
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   Search,
   ArrowDownUp,
   KeyRound,
   SlidersHorizontal,
   Check,
+  Loader2,
 } from "lucide-react";
 import type { ColumnProfile, ColumnType } from "@/lib/types";
 import { DataTable, EmptyState } from "./shared";
@@ -13,7 +15,22 @@ import { Button } from "./ui/button";
 import { number } from "@/lib/utils";
 type SortKey =
   "name" | "type" | "nullPercent" | "distinct" | "duplicates" | "min" | "max";
-export function ProfileTable({ columns }: { columns: ColumnProfile[] }) {
+const apiTypes = {
+  INT: "integer",
+  DECIMAL: "decimal",
+  DATE: "date",
+  BOOLEAN: "boolean",
+  VARCHAR: "text",
+} as const;
+
+export function ProfileTable({
+  columns,
+  projectId,
+}: {
+  columns: ColumnProfile[];
+  projectId: string;
+}) {
+  const router = useRouter();
   const [rows, setRows] = useState(columns);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -23,6 +40,58 @@ export function ProfileTable({ columns }: { columns: ColumnProfile[] }) {
   });
   const [sorted, setSorted] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [baseline, setBaseline] = useState(
+    () => new Map(columns.map((column) => [column.id, column.type])),
+  );
+  const changedRows = rows.filter(
+    (column) => column.type !== baseline.get(column.id),
+  );
+
+  async function saveOverrides() {
+    if (saving || changedRows.length === 0) return;
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/profile`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            overrides: changedRows.map((column) => ({
+              ordinal: column.ordinal ?? Number(column.id),
+              type:
+                column.type === column.inferredType
+                  ? null
+                  : apiTypes[column.type],
+            })),
+          }),
+        },
+      );
+      const result = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (!response.ok)
+        throw new Error(
+          result?.error ||
+            "Type overrides could not be saved. Please try again.",
+        );
+      setBaseline(new Map(rows.map((column) => [column.id, column.type])));
+      setSaved(true);
+      router.refresh();
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "The server could not be reached. Please try again.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
   const visible = useMemo(() => {
     const filtered = rows.filter(
       (c) =>
@@ -71,11 +140,27 @@ export function ProfileTable({ columns }: { columns: ColumnProfile[] }) {
             <option value="nulls">With null values</option>
           </select>
         </div>
-        <Button variant="outline" onClick={() => setSaved(true)}>
-          <Check size={13} />
-          {saved ? "Overrides saved locally" : "Save overrides"}
+        <Button
+          variant="outline"
+          onClick={saveOverrides}
+          disabled={saving || changedRows.length === 0}
+        >
+          {saving ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <Check size={13} />
+          )}
+          {saving ? "Saving…" : saved ? "Overrides saved" : "Save overrides"}
         </Button>
       </div>
+      {error && (
+        <p className="inline-error" role="alert">
+          {error}
+        </p>
+      )}
+      <span className="sr-only" role="status">
+        {saved ? "Type overrides saved to this project." : ""}
+      </span>
       {visible.length ? (
         <DataTable>
           <thead>
@@ -129,6 +214,7 @@ export function ProfileTable({ columns }: { columns: ColumnProfile[] }) {
                     className="type-select"
                     aria-label={`Override type for ${c.name}`}
                     value={c.type}
+                    disabled={saving}
                     onChange={(e) => {
                       setRows((r) =>
                         r.map((x) =>
@@ -138,6 +224,7 @@ export function ProfileTable({ columns }: { columns: ColumnProfile[] }) {
                         ),
                       );
                       setSaved(false);
+                      setError("");
                     }}
                   >
                     {["VARCHAR", "INT", "DECIMAL", "DATE", "BOOLEAN"].map(
@@ -193,9 +280,13 @@ export function ProfileTable({ columns }: { columns: ColumnProfile[] }) {
       )}
       <div className="table-foot">
         <span>
-          {visible.length} of {columns.length} sample columns
+          {visible.length} of {columns.length} columns
         </span>
-        <span>Type overrides are local to this screen.</span>
+        <span>
+          {changedRows.length
+            ? `${changedRows.length} unsaved type ${changedRows.length === 1 ? "override" : "overrides"}`
+            : "Type overrides are saved with this project."}
+        </span>
       </div>
       <div className="info-banner">
         <SlidersHorizontal size={16} />

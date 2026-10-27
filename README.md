@@ -1,93 +1,103 @@
 # DataForge
 
-A frontend-only data warehouse workspace built with Next.js App Router, strict TypeScript, Tailwind CSS, shadcn-style UI primitives, Geist, and dnd-kit. Dark by default, with a browser-persisted theme preference. All project data and operations are simulated.
+DataForge is a Next.js App Router workspace for turning CSV/Excel data into a warehouse model. Phase 1 implements **real uploads, SQLite projects, streaming profiling, and persistent type overrides**. The existing Model, Generate, and Runs tabs still use their original fixtures and simulations; they do not use uploaded data or connect to SQL Server yet.
 
-## Run locally
+## Run
 
-Use Node.js 22.13+ (Node 24 recommended) and pnpm 11.25.0.
+Use **Node.js 24** and **pnpm 11.25.0**. The SQLite native dependency requires a supported Node runtime. Native compilation, when needed, uses Python 3, make, and a C++ compiler.
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-For a production build:
+Then open the app through your development environment. No credentials, remote database, or required environment variables are needed.
 
 ```sh
+pnpm test
 pnpm lint
 pnpm typecheck
 pnpm build
 pnpm start
 ```
 
-On the cloud machine, pnpm's user directories may be read-only. Install with writable cache locations if needed:
+On a cloud machine with read-only user directories, install with writable caches:
 
 ```sh
 XDG_DATA_HOME=/workspace/.local/share XDG_CACHE_HOME=/workspace/.cache \
   pnpm install --frozen-lockfile --store-dir /workspace/.pnpm-store
 ```
 
-No environment variables, credentials, database, or external services are required. Use the existing isolated checkout; no worktree is necessary.
+Use the existing isolated checkout; no worktree is necessary. `pnpm-workspace.yaml` permits the SQLite native build and the existing tooling build steps without an interactive approval prompt.
 
-## Explore
+## Try an import
 
-- `/` — landing page and three-step explainer
-- `/projects` — search, status filter, sorting, grid/list views
-- `/projects/new` — CSV/XLSX file picker, drop zone, simulated upload progress, project fields
-- `/projects/superstore-sales` — overview, pipeline, activity, source details
-- `/projects/superstore-sales/profile` — searchable, sortable profiles and local type overrides
-- `/projects/superstore-sales/model` — drag-and-drop model editor and live SVG schema
-- `/projects/superstore-sales/generate` — SQL tabs, copy/download, simulated incremental/full load
-- `/projects/superstore-sales/runs` — run history, keyboard-accessible log sheet, rejected-row preview
-- `/settings` — masked mock connection, schema validation, persistent theme
+1. Open `/projects`. A new installation starts empty; projects are never seeded.
+2. Choose **New project** and upload `samples/superstore_sales.csv` (2,000 realistic sales rows, 11 columns).
+3. Enter a name and continue. The progress bar measures bytes uploaded; the final transfer state shows profiling until the server responds.
+4. The app redirects to `/projects/<projectId>/profile`. Review counts, inferred types, null percentages, distinct/duplicate counts, min/max, and candidate keys.
+5. Change a type and choose **Save overrides**. Refresh or restart the server: the override and project remain saved.
 
-The other seeded projects also have all five project tabs. Project pages have loading skeletons and error boundaries. Unknown IDs show a 404.
+Bad file types, empty/malformed files, server errors, and files over 50 MB show an error in the upload form. Ragged CSV rows remain in the dataset and are counted/reported above the profile table; missing fields count as empty and extra fields are ignored. Returning to Projects shows persisted imports and their actual row/column counts.
 
-### Keyboard interaction
+The target database dropdown is still a preview setting: uploads do not connect to SQL Server, and the selected target does not change the stored profile.
 
-Use Tab to navigate. In the model editor, focus a column's drag handle, press Space to pick up, arrow keys to move, then Space to drop or Escape to cancel. Each column also has a native select menu for moving directly to a table without dragging. SQL file tabs support arrow keys, Home, and End. Run-detail sheets close with Escape and trap focus until dismissed. Theme and icon actions have accessible labels. Reduced-motion preferences disable transitions and animation.
+## Local data
 
-## Demo boundaries
+Default paths are relative to the repository root:
 
-Files are checked by **name and size only**; their contents are never read, parsed, transmitted, or stored. The selected file's metadata and project name are kept in session storage to personalize the new-project preview. That route uses the Superstore fixture, not the uploaded file. Project creation does not modify the seeded project list.
+- `data/dataforge.db` — SQLite metadata, profiles, and overrides.
+- `data/dataforge.db-wal` / `data/dataforge.db-shm` — SQLite WAL files while the database is open.
+- `data/uploads/<projectId>/<sanitized-filename>.csv` or `.xlsx` — original source file.
+- `data/uploads/<projectId>/profile-report.json` — delimiter and ragged-row report.
 
-Model edits, column type overrides, connection settings, and schema settings live only in their respective screen's React state. Navigating away resets them. Suggested models and generated SQL are independent fixed fixtures: SQL does not regenerate from model edits. The incremental toggle changes the simulated load mode only. Simulated loads don't modify the static run history. Theme preference is the only durable browser setting. Never enter real credentials into the demo.
+The entire `data/` directory is gitignored. Preserve this directory on persistent local storage when restarting or deploying the app. Do not place uploads in `public/`. `DATAFORGE_DATA_DIR` can optionally select a different data directory; automated checks use temporary directories so they never seed or remove your own projects. No data migration or sample-data import runs during build.
 
-## Replace the mocks
+SQLite uses the `projects` and `column_profiles` tables in `lib/server/db.ts`, foreign keys, WAL, and parameterized transactional writes. Samples are JSON-encoded text in `column_profiles.sample_values`; inferred types and override types are stored separately. Source files are retained when imports succeed; failed imports clean up their new upload directory and do not create a project.
 
-All server reads go through typed async functions in **`lib/data/index.ts`**. Shared contracts live in **`lib/types.ts`**. Replace the following functions with API/database adapters when integrating a backend:
+## Profiling behavior
 
-| Function in `lib/data/index.ts` | Real integration                                                                                         |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `getProjects`                   | List the authenticated workspace's projects.                                                             |
-| `getProject`                    | Load a single project; return undefined for a missing or inaccessible project.                           |
-| `getColumnProfiles`             | Return profiling results and persisted type overrides. The fixture is a representative 13-column subset. |
-| `getInitialModel`               | Load a saved model for editing.                                                                          |
-| `getSuggestedModel`             | Fetch a model suggestion for the selected source.                                                        |
-| `getActivity`                   | Read the project's activity timeline.                                                                    |
-| `getRuns`                       | Read run history, execution logs, and rejected rows.                                                     |
-| `getGeneratedFiles`             | Fetch generated SQL files for a persisted model version.                                                 |
+`lib/profiler/` is independent of the UI and database.
 
-The adapters are intentionally asynchronous even though their fixtures are immediate. The seed projects share the same representative Superstore profiles, model, SQL, and run fixtures. Add authorization and runtime validation at the real integration boundary. Existing project routes are statically rendered via `generateStaticParams` in `app/projects/[id]/layout.tsx`; choose appropriate caching/revalidation and remove or change static params when wiring live user-specific data.
+- CSV uses `csv-parse` in one streamed pass. Commas, semicolons, and tabs are detected outside quoted fields; quoted delimiters/newlines, UTF-8 BOM, and ragged rows are supported. Invalid UTF-8 or malformed quoting produces an actionable import error.
+- A header row and at least one data row are required. Blank lines are skipped; whitespace-only fields count as null. Values are trimmed before profiling. Blank header cells receive a generated column name; column ordinals distinguish repeated headers.
+- Exact distinct counts and non-null duplicate counts are computed over the complete dataset. Five distinct non-null sample values are retained. Null percentage uses all data rows. A key candidate requires no nulls and a distinct count equal to row count.
+- Type inference inspects the **first 1,000 non-null values**, requiring a **95% match**. Types are integer, decimal, date, boolean, and text. Explicit true/false/yes/no values are boolean; numeric 0/1 stays integer. Integer and decimal min/max use exact numeric ordering; date min/max use chronological ordering. Non-matching minority values remain counted but are excluded from typed bounds.
+- Dates use validated ISO dates/timestamps or US `MM/DD/YYYY`; invalid calendar dates are not guessed. Timestamps without a timezone are treated as UTC.
+- XLSX uses the `xlsx` package and profiles the **first worksheet**. It is workbook-based rather than streamed. Limits: 50 MB uploaded file, 256 MB expanded ZIP content, 10,000 columns, 1,000,000 data rows, and 2,000,000 worksheet cells. ZIP64/encrypted or invalid workbooks are unsupported; export larger workbooks as CSV. CSV permits up to 10,000 columns.
+- Exact distinct counting keeps a set of observed values per column, so profiling memory grows with unique data even though CSV parsing is streamed.
 
-Replace client-side simulations at these integration points:
+The UI retains its existing SQL-oriented type labels: `INT`, `DECIMAL`, `DATE`, `BOOLEAN`, and `VARCHAR`. The API and database use `integer`, `decimal`, `date`, `boolean`, and `text`. Selecting the originally inferred type clears a previous override.
 
-| File                               | Action to connect                                                                                                     |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `components/new-project-form.tsx`  | Replace file-metadata handling, fake progress, and session-storage draft with a secure upload and project-create API. |
-| `components/profile-table.tsx`     | Persist type overrides on Save; restore them from the profile adapter.                                                |
-| `components/model-editor.tsx`      | Persist reducer state and request suggestions; pass the resulting model version into SQL generation.                  |
-| `components/generate-controls.tsx` | Replace the timeout with a load mutation and streamed/polled run status.                                              |
-| `components/settings-form.tsx`     | Use secure server-side connection management and persist schema preferences. Never expose raw credentials to clients. |
-| `components/runs-table.tsx`        | Replace static log/rejected-row props with run detail reads if they become large.                                     |
-| `components/project-identity.tsx`  | Remove session-storage personalization once projects come from the real adapter.                                      |
+## APIs
 
-Presentational components are in `components/`; the installed shadcn primitives are `components/ui/button.tsx` and `components/ui/dropdown-menu.tsx` (Radix-backed menus). Navigation links prefetch on hover or keyboard focus to avoid loading every project tab at startup. The workspace switcher and status/sort menus support keyboard navigation and mark the active option. Filters, sheets, copy/download, theming, and dnd are client leaves; layouts and route data loading remain Server Components. There is no authentication, API route, file parser, database driver, chart library, or backend implementation.
+All handlers run on Node.js. Zod validates names, IDs, multipart fields, and overrides. JSON errors have the form `{ "error": "message" }` and a non-success HTTP status. Native request/body limits are enforced on the server independently of client validation or a declared Content-Length.
 
-## Validation
+| Endpoint                           | Behavior                                                                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/projects`                | `{ projects: StoredProject[] }` from SQLite.                                                                                  |
+| `POST /api/projects`               | Multipart fields `name`, `file`, optional `targetDatabase`. Saves/profiles the source and returns `201 { project, profile }`. |
+| `GET /api/projects/<id>/profile`   | `{ project, columns, report }`, including samples, inferred/override types, and ragged-row examples.                          |
+| `PATCH /api/projects/<id>/profile` | JSON `{ overrides: [{ ordinal: 0, type: "text" }] }`; use `null` to reset. Returns `{ columns }`. The batch is atomic.        |
 
-Run `pnpm lint`, `pnpm typecheck`, and `pnpm build`. Then start the production server and verify: search and status filters; a file-picker flow; profile sorting and a type override; drag and keyboard column moves; a suggested model and rename; SQL copy/download and incremental simulation; failed-run logs and rejected rows; light/dark themes; 390px and desktop layouts. Lighthouse targets should be measured against `pnpm start`, not the dev server.
+Storage contracts are in `lib/server/projects.ts`, profiler contracts in `lib/profiler/types.ts`, and UI contracts in `lib/types.ts`. `lib/data/index.ts` adapts live storage reads to the current UI. Projects and project routes render dynamically, so new imports and overrides appear without rebuilding.
 
-## Fonts
+## Later phases
 
-`app/fonts/` contains Latin subsets of the variable Geist Sans and Geist Mono fonts from the installed `geist` package, loaded through `next/font/local`. The subsets reduce font transfer size without adding a build dependency; their SIL Open Font License is included alongside them. To regenerate after a Geist update, run `python3 scripts/subset-fonts.py` with FontTools and Brotli available in your Python tooling environment. Non-Latin text uses the system fallback font.
+`lib/data/mock.ts` retains the original Model, Generate, and Runs fixtures. The Model page's profile import points explicitly to that fixture module so a real upload cannot change or break the existing demo model. No Model editor, SQL generation, run execution, or run history behavior is implemented or changed in this phase. Their tabs remain reachable from each real project. The landing illustration also remains an illustration. Connection settings remain a frontend-only preview.
+
+Future integration points:
+
+- `components/model-editor.tsx`: persist reducer state and suggestions against real column ordinals.
+- `getInitialModel`, `getSuggestedModel`: replace fixture model adapters.
+- `getGeneratedFiles`, `components/generate-controls.tsx`: generate SQL for a persisted model and run real loads.
+- `getRuns`, `components/runs-table.tsx`: persist execution logs and rejected rows.
+- `components/settings-form.tsx`: manage real connections securely.
+
+## Validation and architecture
+
+Vitest covers inference thresholds and the 1,000-value limit, null/duplicate/key metrics, dates, numeric ordering, BOM and delimiters, quoted fields/newlines, ragged rows, invalid files, sample profiling, real XLSX parsing, SQLite persistence across reopen, atomic overrides, filename confinement, and server upload limits. Tests use temporary storage, not `data/`.
+
+Server Components load data through `lib/data/`; interactive leaves handle upload, filters, type saves, theming, and menus. The existing design, routes, dark default, light mode, keyboard menus, focus rings, reduced motion, skeletons, and error boundaries are retained. The UI primitives are the Button and Radix-backed DropdownMenu in `components/ui/`.
+
+`app/fonts/` contains Latin subsets of Geist Sans and Geist Mono from the `geist` package, loaded through `next/font/local`. Their SIL Open Font License is included. `scripts/subset-fonts.py` is an optional font maintenance tool requiring FontTools/Brotli; normal application builds need no Python font-generation step. Non-Latin text uses the system fallback font.
