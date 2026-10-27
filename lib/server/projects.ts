@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { SQLOutputValue } from "node:sqlite";
 import type {
   InferredType,
   ProfileColumn,
   ProfileResult,
 } from "@/lib/profiler";
-import { dataDirectory, getDatabase } from "./db";
+import { dataDirectory, getDatabase, withTransaction } from "./db";
 
 export interface StoredProject {
   id: string;
@@ -18,6 +19,8 @@ export interface StoredProject {
   createdAt: string;
   updatedAt: string;
 }
+
+type ProjectRow = StoredProject & Record<string, SQLOutputValue>;
 
 export interface StoredColumnProfile extends ProfileColumn {
   overrideType: InferredType | null;
@@ -44,7 +47,7 @@ export function projectUploadDirectory(projectId: string): string {
 }
 
 export function listProjects(): StoredProject[] {
-  return getDatabase()
+  const rows = getDatabase()
     .prepare(
       `
     SELECT id, name, source_file AS sourceFile, source_type AS sourceType,
@@ -53,12 +56,13 @@ export function listProjects(): StoredProject[] {
     FROM projects ORDER BY updated_at DESC, created_at DESC, id ASC
   `,
     )
-    .all() as StoredProject[];
+    .all() as ProjectRow[];
+  return rows.map((row) => ({ ...row }));
 }
 
 export function findProject(projectId: string): StoredProject | undefined {
   if (!PROJECT_ID_PATTERN.test(projectId)) return undefined;
-  return getDatabase()
+  const row = getDatabase()
     .prepare(
       `
     SELECT id, name, source_file AS sourceFile, source_type AS sourceType,
@@ -67,13 +71,15 @@ export function findProject(projectId: string): StoredProject | undefined {
     FROM projects WHERE id = ?
   `,
     )
-    .get(projectId) as StoredProject | undefined;
+    .get(projectId) as ProjectRow | undefined;
+  return row ? { ...row } : undefined;
 }
 
 interface ColumnRow extends Omit<
   StoredColumnProfile,
   "isKeyCandidate" | "sampleValues"
 > {
+  [key: string]: SQLOutputValue;
   isKeyCandidate: number;
   sampleValues: string;
 }
@@ -123,17 +129,36 @@ export function saveProjectProfile(
     VALUES (@projectId, @ordinal, @name, @inferredType, NULL, @nullPct, @distinctCount,
       @duplicateCount, @minValue, @maxValue, @isKeyCandidate, @sampleValues)
   `);
-  database.transaction(() => {
-    insertProject.run(project);
+  insertProject.setAllowBareNamedParameters(true);
+  insertColumn.setAllowBareNamedParameters(true);
+  withTransaction(database, () => {
+    insertProject.run({
+      id: project.id,
+      name: project.name,
+      sourceFile: project.sourceFile,
+      sourceType: project.sourceType,
+      status: project.status,
+      rowCount: project.rowCount,
+      columnCount: project.columnCount,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+    });
     for (const column of profile.columns) {
       insertColumn.run({
         projectId: project.id,
-        ...column,
+        ordinal: column.ordinal,
+        name: column.name,
+        inferredType: column.inferredType,
+        nullPct: column.nullPct,
+        distinctCount: column.distinctCount,
+        duplicateCount: column.duplicateCount,
+        minValue: column.minValue,
+        maxValue: column.maxValue,
         isKeyCandidate: column.isKeyCandidate ? 1 : 0,
         sampleValues: JSON.stringify(column.sampleValues),
       });
     }
-  })();
+  });
   return project;
 }
 
@@ -148,7 +173,7 @@ export function updateColumnOverrides(
   const update = database.prepare(`
     UPDATE column_profiles SET override_type = ? WHERE project_id = ? AND ordinal = ?
   `);
-  database.transaction(() => {
+  withTransaction(database, () => {
     if (!findProject(projectId))
       throw new ProjectNotFoundError("Project not found.");
     const existing = new Set(
@@ -164,6 +189,6 @@ export function updateColumnOverrides(
     database
       .prepare("UPDATE projects SET updated_at = ? WHERE id = ?")
       .run(new Date().toISOString(), projectId);
-  })();
+  });
   return readColumnProfiles(projectId);
 }

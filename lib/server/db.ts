@@ -1,9 +1,9 @@
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const globalDatabases = globalThis as typeof globalThis & {
-  dataforgeDatabases?: Map<string, Database.Database>;
+  dataforgeDatabases?: Map<string, DatabaseSync>;
 };
 
 /** The override keeps automated checks isolated from a developer's stored data. */
@@ -11,19 +11,19 @@ export function dataDirectory(): string {
   return resolve(process.env.DATAFORGE_DATA_DIR || join(process.cwd(), "data"));
 }
 
-export function getDatabase(): Database.Database {
+export function getDatabase(): DatabaseSync {
   const directory = dataDirectory();
   const filename = join(directory, "dataforge.db");
   const databases = (globalDatabases.dataforgeDatabases ??= new Map());
   const existing = databases.get(filename);
-  if (existing?.open) return existing;
+  if (existing) return existing;
 
   mkdirSync(directory, { recursive: true });
-  const database = new Database(filename);
+  const database = new DatabaseSync(filename);
   try {
-    database.pragma("journal_mode = WAL");
-    database.pragma("foreign_keys = ON");
-    database.pragma("busy_timeout = 5000");
+    database.exec("PRAGMA journal_mode = WAL");
+    database.exec("PRAGMA foreign_keys = ON");
+    database.exec("PRAGMA busy_timeout = 5000");
     database.exec(`
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
@@ -60,10 +60,26 @@ export function getDatabase(): Database.Database {
   }
 }
 
-/** Release native handles before deleting a temporary test directory. */
+/** Keep multi-statement writes atomic without a driver-specific transaction API. */
+export function withTransaction<T>(
+  database: DatabaseSync,
+  callback: () => T,
+): T {
+  database.exec("BEGIN");
+  try {
+    const result = callback();
+    database.exec("COMMIT");
+    return result;
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/** Release database handles before deleting a temporary test directory. */
 export function closeDatabase(): void {
   for (const database of globalDatabases.dataforgeDatabases?.values() ?? []) {
-    if (database.open) database.close();
+    database.close();
   }
   globalDatabases.dataforgeDatabases?.clear();
 }
