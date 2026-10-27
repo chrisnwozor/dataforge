@@ -1,12 +1,8 @@
 import { notFound } from "next/navigation";
-import { getProject, getProjects } from "@/lib/data";
+import { getProject } from "@/lib/data";
 import { ProjectTabs } from "@/components/project-tabs";
-export async function generateStaticParams() {
-  return [
-    ...(await getProjects()).map((p) => ({ id: p.id })),
-    { id: "new-project" },
-  ];
-}
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 export default async function ProjectLayout({
   children,
   params,

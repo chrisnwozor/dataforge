@@ -16,6 +16,10 @@ export interface Project {
 }
 export type ColumnType = "VARCHAR" | "INT" | "DECIMAL" | "DATE" | "BOOLEAN";
 export interface ColumnProfile {
+  ordinal?: number;
+  inferredType?: ColumnType;
+  overrideType?: ColumnType | null;
+  sampleValues?: string[];
   id: string;
   name: string;
   type: ColumnType;

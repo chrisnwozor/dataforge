@@ -143,8 +143,14 @@ export function ProjectsList({ projects }: { projects: Project[] }) {
       </div>
       {filtered.length === 0 ? (
         <EmptyState
-          title="No projects found"
-          description="Try a different name or status to find your project."
+          title={projects.length ? "No projects found" : "No projects yet"}
+          description={
+            projects.length
+              ? "Try a different name or status to find your project."
+              : "Upload a CSV or Excel file to profile your first dataset."
+          }
+          href={projects.length ? undefined : "/projects/new"}
+          label="New project"
         />
       ) : view === "grid" ? (
         <div className="projects-grid">
@@ -251,7 +257,7 @@ export function ProjectsList({ projects }: { projects: Project[] }) {
         <span>
           {filtered.length} of {projects.length} projects
         </span>
-        <span>All activity shown is sample data.</span>
+        <span>Projects and profiles are saved in this workspace.</span>
       </div>
       <div className="info-banner">
         <SlidersHorizontal size={16} />

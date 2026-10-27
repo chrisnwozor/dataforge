@@ -21,7 +21,6 @@ import {
   PipelineStepper,
 } from "@/components/shared";
 import { buttonVariants } from "@/components/ui/button";
-import { ProjectIdentity } from "@/components/project-identity";
 import { number } from "@/lib/utils";
 export const metadata = { title: "Project overview" };
 export default async function Overview({
@@ -44,13 +43,7 @@ export default async function Overview({
         All projects
       </Link>
       <PageHeader
-        title={
-          id === "new-project" ? (
-            <ProjectIdentity fallback={project.name} />
-          ) : (
-            project.name
-          )
-        }
+        title={project.name}
         description={project.description}
         actions={
           <>
@@ -65,24 +58,11 @@ export default async function Overview({
           </>
         }
       />
-      {id === "new-project" && (
-        <div className="info-banner" style={{ margin: "-10px 0 24px" }}>
-          <FileSpreadsheet size={16} />
-          <span>
-            <strong>
-              <ProjectIdentity fallback="Untitled project" />
-            </strong>{" "}
-            · <ProjectIdentity field="sourceName" fallback="Your source file" />
-            . This preview uses the Superstore sample; your file has not been
-            parsed.
-          </span>
-        </div>
-      )}
       <div className="stats-grid">
         <StatCard
           label="Source rows"
           value={number(project.rows)}
-          detail="Rows in the sample dataset"
+          detail="Rows in the uploaded dataset"
           icon={<FileSpreadsheet size={14} />}
         />
         <StatCard
@@ -140,7 +120,7 @@ export default async function Overview({
             className="panel-body"
             style={{ paddingTop: 0, paddingBottom: 0 }}
           >
-            {(id === "new-project" ? activity.slice(-1) : activity).map((a) => {
+            {activity.map((a) => {
               const Icon = {
                 run: Check,
                 upload: Upload,
@@ -176,7 +156,7 @@ export default async function Overview({
               ["Source type", project.sourceType],
               ["Target", "SQL Server 2022"],
               ["Default schema", "warehouse"],
-              ["Environment", "Demo workspace"],
+              ["Environment", "Local workspace"],
             ].map(([label, value]) => (
               <div className="detail-row" key={label}>
                 <span>{label}</span>
@@ -197,8 +177,8 @@ export default async function Overview({
       <div className="info-banner">
         <History size={15} />
         <span>
-          Every step, accounted for. Review the sample load history before you
-          generate your next warehouse.
+          Upload and profiling use your source file. Model, SQL generation, and
+          run history remain previews for now.
         </span>
         <Link href={`/projects/${id}/runs`}>
           Explore run history <ArrowRight size={12} />

@@ -1,10 +1,7 @@
 import { PageHeader } from "@/components/shared";
 import { ModelEditor } from "@/components/model-editor";
-import {
-  getInitialModel,
-  getSuggestedModel,
-  getColumnProfiles,
-} from "@/lib/data";
+import { getInitialModel, getSuggestedModel } from "@/lib/data";
+import { getColumnProfiles } from "@/lib/data/mock";
 export const metadata = { title: "Model editor" };
 export default async function ModelPage({
   params,
