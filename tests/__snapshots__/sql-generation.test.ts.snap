@@ -1,0 +1,672 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`saved-model T-SQL generation > snapshots the complete six-file real Superstore pipeline 1`] = `
+[
+  {
+    "description": "Creates staging, warehouse, and logging schemas, plus reject storage. Starts a shared run ID and installs exact numeric text normalization.",
+    "name": "00_setup.sql",
+    "sql": "-- DataForge: 00_setup
+-- Project: Superstore sales
+-- Generated: 2026-10-27T12:00:00.000Z
+-- Source file: superstore_sales.csv
+-- Review before running. SQL Server 2019+. No script is executed by DataForge.
+USE [DataForge];
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+
+DECLARE @RunId UNIQUEIDENTIFIER = NEWID();
+IF @RunId IS NULL SET @RunId = NEWID();
+EXEC [sys].[sp_set_session_context] @key = N'DataForgeRunId:11111111-1111-4111-8111-111111111111', @value = @RunId;
+DECLARE @StartedAt DATETIME2(3) = SYSUTCDATETIME();
+DECLARE @RowsIn BIGINT = 0, @RowsOut BIGINT = 0, @RowsRejected BIGINT = 0;
+DECLARE @TrimCharacters NVARCHAR(100) = NCHAR(9) + NCHAR(10) + NCHAR(11) + NCHAR(12) + NCHAR(13) + NCHAR(32) + NCHAR(160) + NCHAR(5760) + NCHAR(8192) + NCHAR(8193) + NCHAR(8194) + NCHAR(8195) + NCHAR(8196) + NCHAR(8197) + NCHAR(8198) + NCHAR(8199) + NCHAR(8200) + NCHAR(8201) + NCHAR(8202) + NCHAR(8232) + NCHAR(8233) + NCHAR(8239) + NCHAR(8287) + NCHAR(12288) + NCHAR(65279);
+BEGIN TRY
+  BEGIN TRANSACTION;
+  IF SCHEMA_ID(N'stg') IS NULL EXEC(N'CREATE SCHEMA [stg]');
+  IF SCHEMA_ID(N'dw') IS NULL EXEC(N'CREATE SCHEMA [dw]');
+  IF SCHEMA_ID(N'etl') IS NULL EXEC(N'CREATE SCHEMA [etl]');
+  IF OBJECT_ID(N'[etl].[run_log]', N'U') IS NULL
+    CREATE TABLE [etl].[run_log] (
+      [run_id] UNIQUEIDENTIFIER NOT NULL,
+      [step] NVARCHAR(128) NOT NULL,
+      [started_at] DATETIME2(3) NOT NULL,
+      [finished_at] DATETIME2(3) NULL,
+      [rows_in] BIGINT NOT NULL DEFAULT (0),
+      [rows_out] BIGINT NOT NULL DEFAULT (0),
+      [rows_rejected] BIGINT NOT NULL DEFAULT (0),
+      [status] NVARCHAR(30) NOT NULL,
+      [message] NVARCHAR(MAX) NULL
+    );
+  IF OBJECT_ID(N'[dw].[reject_rows]', N'U') IS NULL
+    CREATE TABLE [dw].[reject_rows] (
+      [run_id] UNIQUEIDENTIFIER NOT NULL,
+      [source_row_number] INT NOT NULL,
+      [reason] NVARCHAR(MAX) NOT NULL,
+      [raw_json] NVARCHAR(MAX) NOT NULL
+    );
+  -- Exact decimal-text normalization supports grouped and scientific numeric input.
+  EXEC [sys].[sp_executesql] N'CREATE OR ALTER FUNCTION [etl].[normalize_number] (@Value NVARCHAR(MAX))
+RETURNS NVARCHAR(MAX)
+AS
+BEGIN
+  DECLARE @Input NVARCHAR(MAX) = LTRIM(RTRIM(@Value));
+  DECLARE @InputE INT = CHARINDEX(N''e'', LOWER(@Input));
+  DECLARE @GroupedMantissa NVARCHAR(MAX) = CASE WHEN @InputE = 0 THEN @Input ELSE LEFT(@Input, @InputE - 1) END;
+  IF @InputE > 0 AND CHARINDEX(N'','', SUBSTRING(@Input, @InputE + 1, LEN(@Input))) > 0 RETURN NULL;
+  IF CHARINDEX(N'','', @GroupedMantissa) > 0
+  BEGIN
+    IF LEFT(@GroupedMantissa, 1) IN (N''-'', N''+'') SET @GroupedMantissa = SUBSTRING(@GroupedMantissa, 2, LEN(@GroupedMantissa));
+    DECLARE @GroupedDot INT = CHARINDEX(N''.'', @GroupedMantissa);
+    DECLARE @IntegerPart NVARCHAR(MAX) = CASE WHEN @GroupedDot = 0 THEN @GroupedMantissa ELSE LEFT(@GroupedMantissa, @GroupedDot - 1) END;
+    IF @GroupedDot > 0 AND CHARINDEX(N'','', SUBSTRING(@GroupedMantissa, @GroupedDot + 1, LEN(@GroupedMantissa))) > 0 RETURN NULL;
+    DECLARE @Comma INT = CHARINDEX(N'','', @IntegerPart);
+    IF @Comma < 2 OR @Comma > 4 OR LEFT(@IntegerPart, @Comma - 1) COLLATE Latin1_General_100_BIN2 LIKE N''%[^0-9]%'' RETURN NULL;
+    WHILE @Comma > 0
+    BEGIN
+      DECLARE @NextComma INT = CHARINDEX(N'','', @IntegerPart, @Comma + 1);
+      DECLARE @Group NVARCHAR(MAX) = SUBSTRING(@IntegerPart, @Comma + 1, CASE WHEN @NextComma = 0 THEN LEN(@IntegerPart) ELSE @NextComma - 1 END - @Comma);
+      IF LEN(@Group) <> 3 OR @Group COLLATE Latin1_General_100_BIN2 LIKE N''%[^0-9]%'' RETURN NULL;
+      SET @Comma = @NextComma;
+    END;
+  END;
+  DECLARE @Text NVARCHAR(MAX) = REPLACE(@Input, N'','', N'''');
+  DECLARE @E INT = CHARINDEX(N''e'', LOWER(@Text));
+  IF @E = 0 OR @Text IS NULL RETURN @Text;
+  IF CHARINDEX(N''e'', LOWER(@Text), @E + 1) > 0 RETURN NULL;
+  DECLARE @Mantissa NVARCHAR(MAX) = LEFT(@Text, @E - 1);
+  DECLARE @ExponentText NVARCHAR(MAX) = SUBSTRING(@Text, @E + 1, LEN(@Text));
+  DECLARE @Negative BIT = CASE WHEN LEFT(@Mantissa, 1) = N''-'' THEN 1 ELSE 0 END;
+  IF LEFT(@Mantissa, 1) IN (N''-'', N''+'') SET @Mantissa = SUBSTRING(@Mantissa, 2, LEN(@Mantissa));
+  IF LEFT(@ExponentText, 1) IN (N''-'', N''+'')
+    BEGIN
+      IF SUBSTRING(@ExponentText, 2, LEN(@ExponentText)) COLLATE Latin1_General_100_BIN2 LIKE N''%[^0-9]%'' OR LEN(@ExponentText) < 2 RETURN NULL;
+    END
+  ELSE IF @ExponentText COLLATE Latin1_General_100_BIN2 LIKE N''%[^0-9]%'' OR LEN(@ExponentText) = 0 RETURN NULL;
+  DECLARE @Exponent INT = TRY_CONVERT(INT, @ExponentText);
+  IF @Exponent IS NULL OR LEN(@Mantissa) = 0 OR @Mantissa COLLATE Latin1_General_100_BIN2 LIKE N''%[^0-9.]%'' RETURN NULL;
+  IF LEN(@Mantissa) - LEN(REPLACE(@Mantissa, N''.'', N'''')) > 1 RETURN NULL;
+  DECLARE @Dot INT = CHARINDEX(N''.'', @Mantissa);
+  DECLARE @Digits NVARCHAR(MAX) = REPLACE(@Mantissa, N''.'', N'''');
+  IF LEN(@Digits) = 0 RETURN NULL;
+  IF @Digits COLLATE Latin1_General_100_BIN2 NOT LIKE N''%[1-9]%'' RETURN N''0'';
+  DECLARE @Position BIGINT = CAST(CASE WHEN @Dot = 0 THEN LEN(@Mantissa) ELSE @Dot - 1 END AS BIGINT) + @Exponent;
+  -- Values below 0.0000001 round to zero for every generated scale (at most six).
+  IF @Position < -6 RETURN N''0'';
+  -- Non-zero values needing more than 38 trailing zeroes cannot fit DECIMAL(18,s) or BIGINT.
+  IF @Position > CAST(LEN(@Digits) AS BIGINT) + 38 RETURN NULL;
+  DECLARE @Result NVARCHAR(MAX);
+  IF @Position <= 0 SET @Result = N''0.'' + REPLICATE(CAST(N''0'' AS NVARCHAR(MAX)), CAST(-@Position AS INT)) + @Digits;
+  ELSE IF @Position >= LEN(@Digits) SET @Result = @Digits + REPLICATE(CAST(N''0'' AS NVARCHAR(MAX)), CAST(@Position - LEN(@Digits) AS INT));
+  ELSE SET @Result = STUFF(@Digits, CAST(@Position + 1 AS INT), 0, N''.'');
+  RETURN CASE WHEN @Negative = 1 THEN N''-'' ELSE N'''' END + @Result;
+END';
+  INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+  VALUES (@RunId, N'00_setup', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Succeeded', N'Completed.');
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  IF OBJECT_ID(N'[etl].[run_log]', N'U') IS NOT NULL
+    INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+    VALUES (@RunId, N'00_setup', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Failed', ERROR_MESSAGE());
+  THROW;
+END CATCH;
+",
+  },
+  {
+    "description": "Loads the cleaned UTF-8 CSV as raw text, keeping conversion errors out of staging. Set @FilePath to a SQL Server-accessible file before running.",
+    "name": "01_staging.sql",
+    "sql": "-- DataForge: 01_staging
+-- Project: Superstore sales
+-- Generated: 2026-10-27T12:00:00.000Z
+-- Source file: superstore_sales.csv
+-- Review before running. SQL Server 2019+. No script is executed by DataForge.
+USE [DataForge];
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+
+DECLARE @RunId UNIQUEIDENTIFIER = TRY_CONVERT(UNIQUEIDENTIFIER, SESSION_CONTEXT(N'DataForgeRunId:11111111-1111-4111-8111-111111111111'));
+IF @RunId IS NULL SET @RunId = NEWID();
+EXEC [sys].[sp_set_session_context] @key = N'DataForgeRunId:11111111-1111-4111-8111-111111111111', @value = @RunId;
+DECLARE @StartedAt DATETIME2(3) = SYSUTCDATETIME();
+DECLARE @RowsIn BIGINT = 0, @RowsOut BIGINT = 0, @RowsRejected BIGINT = 0;
+DECLARE @TrimCharacters NVARCHAR(100) = NCHAR(9) + NCHAR(10) + NCHAR(11) + NCHAR(12) + NCHAR(13) + NCHAR(32) + NCHAR(160) + NCHAR(5760) + NCHAR(8192) + NCHAR(8193) + NCHAR(8194) + NCHAR(8195) + NCHAR(8196) + NCHAR(8197) + NCHAR(8198) + NCHAR(8199) + NCHAR(8200) + NCHAR(8201) + NCHAR(8202) + NCHAR(8232) + NCHAR(8233) + NCHAR(8239) + NCHAR(8287) + NCHAR(12288) + NCHAR(65279);
+BEGIN TRY
+  BEGIN TRANSACTION;
+  IF OBJECT_ID(N'[stg].[superstore_sales]', N'U') IS NULL
+    CREATE TABLE [stg].[superstore_sales] (
+      [order_id] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [order_date] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [customer_name] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [segment] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [region] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [product] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [category] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [sales] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [quantity] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [discount] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [profit] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [source_row_number] INT IDENTITY(2,1) NOT NULL
+    );
+  -- The import view exposes only CSV fields; the base table generates logical row numbers.
+  EXEC [sys].[sp_executesql] N'CREATE OR ALTER VIEW [stg].[superstore_sales_import] AS SELECT [order_id], [order_date], [customer_name], [segment], [region], [product], [category], [sales], [quantity], [discount], [profit] FROM [stg].[superstore_sales];';
+  TRUNCATE TABLE [stg].[superstore_sales];
+  -- REQUIRED: replace @FilePath with the server-accessible path to DataForge's Cleaned CSV.
+  -- Download Cleaned CSV even for XLSX, BOM, semicolon, or tab-delimited source files.
+  -- SQL Server's service account needs read access to this file; the browser's path is not sufficient.
+  DECLARE @FilePath NVARCHAR(4000) = N'C:\\DataForge\\REPLACE_WITH_CLEANED_SOURCE.csv';
+  DECLARE @BulkSql NVARCHAR(MAX) = N'BULK INSERT [stg].[superstore_sales_import] FROM '''
+    + REPLACE(@FilePath, N'''', N'''''') + N''' WITH (FORMAT = ''CSV'', FIRSTROW = 2, CODEPAGE = ''65001'', FIELDTERMINATOR = '','', FIELDQUOTE = ''"'', ROWTERMINATOR = ''0x0a'', TABLOCK);';
+  EXEC [sys].[sp_executesql] @BulkSql;
+  SET @RowsIn = (SELECT COUNT_BIG(*) FROM [stg].[superstore_sales]);
+  SET @RowsOut = @RowsIn;
+  INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+  VALUES (@RunId, N'01_staging', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Succeeded', N'Completed.');
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  IF OBJECT_ID(N'[etl].[run_log]', N'U') IS NOT NULL
+    INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+    VALUES (@RunId, N'01_staging', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Failed', ERROR_MESSAGE());
+  THROW;
+END CATCH;
+",
+  },
+  {
+    "description": "Builds the saved calendar dimension from source dates with a one-year buffer. Adds an Unknown member and stable English calendar labels.",
+    "name": "02_dim_date.sql",
+    "sql": "-- DataForge: 02_dim_date
+-- Project: Superstore sales
+-- Generated: 2026-10-27T12:00:00.000Z
+-- Source file: superstore_sales.csv
+-- Review before running. SQL Server 2019+. No script is executed by DataForge.
+USE [DataForge];
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+
+DECLARE @RunId UNIQUEIDENTIFIER = TRY_CONVERT(UNIQUEIDENTIFIER, SESSION_CONTEXT(N'DataForgeRunId:11111111-1111-4111-8111-111111111111'));
+IF @RunId IS NULL SET @RunId = NEWID();
+EXEC [sys].[sp_set_session_context] @key = N'DataForgeRunId:11111111-1111-4111-8111-111111111111', @value = @RunId;
+DECLARE @StartedAt DATETIME2(3) = SYSUTCDATETIME();
+DECLARE @RowsIn BIGINT = 0, @RowsOut BIGINT = 0, @RowsRejected BIGINT = 0;
+DECLARE @TrimCharacters NVARCHAR(100) = NCHAR(9) + NCHAR(10) + NCHAR(11) + NCHAR(12) + NCHAR(13) + NCHAR(32) + NCHAR(160) + NCHAR(5760) + NCHAR(8192) + NCHAR(8193) + NCHAR(8194) + NCHAR(8195) + NCHAR(8196) + NCHAR(8197) + NCHAR(8198) + NCHAR(8199) + NCHAR(8200) + NCHAR(8201) + NCHAR(8202) + NCHAR(8232) + NCHAR(8233) + NCHAR(8239) + NCHAR(8287) + NCHAR(12288) + NCHAR(65279);
+BEGIN TRY
+  BEGIN TRANSACTION;
+  IF OBJECT_ID(N'[dw].[dim_date]', N'U') IS NULL
+    CREATE TABLE [dw].[dim_date] (
+      [DateKey] INT NOT NULL PRIMARY KEY,
+      [Date] DATE NULL,
+      [Year] INT NOT NULL, [Quarter] INT NOT NULL, [QuarterName] NVARCHAR(10) NOT NULL,
+      [Month] INT NOT NULL, [MonthName] NVARCHAR(20) NOT NULL,
+      [Day] INT NOT NULL, [DayOfWeek] INT NOT NULL, [DayName] NVARCHAR(20) NOT NULL,
+      [WeekOfYear] INT NOT NULL, [IsWeekend] BIT NOT NULL
+    );
+  IF NOT EXISTS (SELECT 1 FROM [dw].[dim_date] WHERE [DateKey] = -1)
+    INSERT INTO [dw].[dim_date] ([DateKey], [Date], [Year], [Quarter], [QuarterName], [Month], [MonthName], [Day], [DayOfWeek], [DayName], [WeekOfYear], [IsWeekend])
+    VALUES (-1, NULL, -1, -1, N'Unknown', -1, N'Unknown', -1, -1, N'Unknown', -1, 0);
+  DECLARE @MinDate0 DATE, @MaxDate0 DATE, @StartDate0 DATE, @EndDate0 DATE;
+  SELECT @MinDate0 = MIN([v].[SourceDate]), @MaxDate0 = MAX([v].[SourceDate])
+  FROM [stg].[superstore_sales] AS [s]
+  CROSS APPLY (VALUES (COALESCE(TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 23), TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 126), TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 101)))) AS [v] ([SourceDate]);
+  IF @MinDate0 IS NOT NULL AND @MaxDate0 IS NOT NULL
+  BEGIN
+    SET @StartDate0 = CASE WHEN YEAR(@MinDate0) = 1 THEN CONVERT(DATE, N'00010101', 112) ELSE DATEADD(YEAR, -1, @MinDate0) END;
+    SET @EndDate0 = CASE WHEN YEAR(@MaxDate0) = 9999 THEN CONVERT(DATE, N'99991231', 112) ELSE DATEADD(YEAR, 1, @MaxDate0) END;
+    ;WITH [Digits] AS (
+      SELECT [n] FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS [d] ([n])
+    ), [Numbers] AS (
+      SELECT TOP (DATEDIFF(DAY, @StartDate0, @EndDate0) + 1)
+        ROW_NUMBER() OVER (ORDER BY [a].[n], [b].[n], [c].[n], [d].[n], [e].[n], [f].[n], [g].[n]) - 1 AS [n]
+      FROM [Digits] AS [a] CROSS JOIN [Digits] AS [b] CROSS JOIN [Digits] AS [c]
+      CROSS JOIN [Digits] AS [d] CROSS JOIN [Digits] AS [e] CROSS JOIN [Digits] AS [f] CROSS JOIN [Digits] AS [g]
+    ), [Dates] AS (
+      SELECT DATEADD(DAY, CAST([n] AS INT), @StartDate0) AS [CalendarDate] FROM [Numbers]
+    ), [Calendar] AS (
+      SELECT [CalendarDate], ((DATEDIFF(DAY, CONVERT(DATE, N'19000101', 112), [CalendarDate]) % 7 + 7) % 7) + 1 AS [IsoWeekday]
+      FROM [Dates]
+    )
+    INSERT INTO [dw].[dim_date] ([DateKey], [Date], [Year], [Quarter], [QuarterName], [Month], [MonthName], [Day], [DayOfWeek], [DayName], [WeekOfYear], [IsWeekend])
+    SELECT YEAR([c].[CalendarDate]) * 10000 + MONTH([c].[CalendarDate]) * 100 + DAY([c].[CalendarDate]),
+      [c].[CalendarDate], YEAR([c].[CalendarDate]), DATEPART(QUARTER, [c].[CalendarDate]),
+      N'Q' + CONVERT(NVARCHAR(1), DATEPART(QUARTER, [c].[CalendarDate])), MONTH([c].[CalendarDate]),
+      CASE MONTH([c].[CalendarDate]) WHEN 1 THEN N'January' WHEN 2 THEN N'February' WHEN 3 THEN N'March' WHEN 4 THEN N'April' WHEN 5 THEN N'May' WHEN 6 THEN N'June' WHEN 7 THEN N'July' WHEN 8 THEN N'August' WHEN 9 THEN N'September' WHEN 10 THEN N'October' WHEN 11 THEN N'November' ELSE N'December' END,
+      DAY([c].[CalendarDate]), [c].[IsoWeekday],
+      CASE [c].[IsoWeekday] WHEN 1 THEN N'Monday' WHEN 2 THEN N'Tuesday' WHEN 3 THEN N'Wednesday' WHEN 4 THEN N'Thursday' WHEN 5 THEN N'Friday' WHEN 6 THEN N'Saturday' ELSE N'Sunday' END,
+      DATEPART(ISO_WEEK, [c].[CalendarDate]), CAST(CASE WHEN [c].[IsoWeekday] IN (6, 7) THEN 1 ELSE 0 END AS BIT)
+    FROM [Calendar] AS [c]
+    WHERE NOT EXISTS (SELECT 1 FROM [dw].[dim_date] AS [existing] WHERE [existing].[DateKey] = YEAR([c].[CalendarDate]) * 10000 + MONTH([c].[CalendarDate]) * 100 + DAY([c].[CalendarDate]));
+    SET @RowsOut = @RowsOut + @@ROWCOUNT;
+  END;
+  SET @RowsIn = (SELECT COUNT_BIG(*) FROM [stg].[superstore_sales]);
+  INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+  VALUES (@RunId, N'02_dim_date', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Succeeded', N'Completed.');
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  IF OBJECT_ID(N'[etl].[run_log]', N'U') IS NOT NULL
+    INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+    VALUES (@RunId, N'02_dim_date', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Failed', ERROR_MESSAGE());
+  THROW;
+END CATCH;
+",
+  },
+  {
+    "description": "Creates descriptive dimensions, Unknown members, and audit columns. Merges one row per business key, preferring populated attributes over blanks.",
+    "name": "03_dimensions.sql",
+    "sql": "-- DataForge: 03_dimensions
+-- Project: Superstore sales
+-- Generated: 2026-10-27T12:00:00.000Z
+-- Source file: superstore_sales.csv
+-- Review before running. SQL Server 2019+. No script is executed by DataForge.
+USE [DataForge];
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+
+DECLARE @RunId UNIQUEIDENTIFIER = TRY_CONVERT(UNIQUEIDENTIFIER, SESSION_CONTEXT(N'DataForgeRunId:11111111-1111-4111-8111-111111111111'));
+IF @RunId IS NULL SET @RunId = NEWID();
+EXEC [sys].[sp_set_session_context] @key = N'DataForgeRunId:11111111-1111-4111-8111-111111111111', @value = @RunId;
+DECLARE @StartedAt DATETIME2(3) = SYSUTCDATETIME();
+DECLARE @RowsIn BIGINT = 0, @RowsOut BIGINT = 0, @RowsRejected BIGINT = 0;
+DECLARE @TrimCharacters NVARCHAR(100) = NCHAR(9) + NCHAR(10) + NCHAR(11) + NCHAR(12) + NCHAR(13) + NCHAR(32) + NCHAR(160) + NCHAR(5760) + NCHAR(8192) + NCHAR(8193) + NCHAR(8194) + NCHAR(8195) + NCHAR(8196) + NCHAR(8197) + NCHAR(8198) + NCHAR(8199) + NCHAR(8200) + NCHAR(8201) + NCHAR(8202) + NCHAR(8232) + NCHAR(8233) + NCHAR(8239) + NCHAR(8287) + NCHAR(12288) + NCHAR(65279);
+BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @IdentityTable NVARCHAR(300) = NULL;
+  IF OBJECT_ID(N'[dw].[dim_customer]', N'U') IS NULL
+    CREATE TABLE [dw].[dim_customer] (
+      [customer_key] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+      [customer_name] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [segment] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [created_at] DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+      [updated_at] DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+  IF NOT EXISTS (SELECT 1 FROM [dw].[dim_customer] WHERE [customer_key] = -1)
+  BEGIN
+    SET IDENTITY_INSERT [dw].[dim_customer] ON;
+    SET @IdentityTable = N'[dw].[dim_customer]';
+    INSERT INTO [dw].[dim_customer] ([customer_key], [customer_name], [segment], [created_at], [updated_at])
+    VALUES (-1, NULL, N'Unknown', SYSUTCDATETIME(), SYSUTCDATETIME());
+    SET IDENTITY_INSERT [dw].[dim_customer] OFF;
+    SET @IdentityTable = NULL;
+  END;
+  -- Rank before replacing null text attributes so a populated attribute wins over a blank.
+  ;WITH [Ranked] AS (
+    SELECT
+      NULLIF(TRIM(@TrimCharacters FROM [s].[customer_name]), N'') AS [customer_name],
+      NULLIF(TRIM(@TrimCharacters FROM [s].[segment]), N'') AS [segment],
+      ROW_NUMBER() OVER (
+        PARTITION BY NULLIF(TRIM(@TrimCharacters FROM [s].[customer_name]), N'')
+        ORDER BY (CASE WHEN NULLIF(TRIM(@TrimCharacters FROM [s].[segment]), N'') IS NULL THEN 0 ELSE 1 END) DESC, [s].[source_row_number] ASC
+      ) AS [__df_dimension_rank]
+    FROM [stg].[superstore_sales] AS [s]
+    WHERE NULLIF(TRIM(@TrimCharacters FROM [s].[customer_name]), N'') IS NOT NULL
+  )
+  MERGE [dw].[dim_customer] WITH (HOLDLOCK) AS [target]
+  USING (SELECT [r].[customer_name] AS [customer_name], COALESCE([r].[segment], N'Unknown') AS [segment] FROM [Ranked] AS [r] WHERE [r].[__df_dimension_rank] = 1) AS [source]
+  ON [target].[customer_name] = [source].[customer_name]
+  WHEN MATCHED AND EXISTS (SELECT [source].[segment] EXCEPT SELECT [target].[segment]) THEN
+    UPDATE SET [target].[segment] = [source].[segment], [target].[updated_at] = SYSUTCDATETIME()
+  WHEN NOT MATCHED BY TARGET THEN
+    INSERT ([customer_name], [segment], [created_at], [updated_at])
+    VALUES ([source].[customer_name], [source].[segment], SYSUTCDATETIME(), SYSUTCDATETIME());
+  SET @RowsOut = @RowsOut + @@ROWCOUNT;
+  IF OBJECT_ID(N'[dw].[dim_product]', N'U') IS NULL
+    CREATE TABLE [dw].[dim_product] (
+      [product_key] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+      [product] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [category] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [created_at] DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+      [updated_at] DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+  IF NOT EXISTS (SELECT 1 FROM [dw].[dim_product] WHERE [product_key] = -1)
+  BEGIN
+    SET IDENTITY_INSERT [dw].[dim_product] ON;
+    SET @IdentityTable = N'[dw].[dim_product]';
+    INSERT INTO [dw].[dim_product] ([product_key], [product], [category], [created_at], [updated_at])
+    VALUES (-1, NULL, N'Unknown', SYSUTCDATETIME(), SYSUTCDATETIME());
+    SET IDENTITY_INSERT [dw].[dim_product] OFF;
+    SET @IdentityTable = NULL;
+  END;
+  -- Rank before replacing null text attributes so a populated attribute wins over a blank.
+  ;WITH [Ranked] AS (
+    SELECT
+      NULLIF(TRIM(@TrimCharacters FROM [s].[product]), N'') AS [product],
+      NULLIF(TRIM(@TrimCharacters FROM [s].[category]), N'') AS [category],
+      ROW_NUMBER() OVER (
+        PARTITION BY NULLIF(TRIM(@TrimCharacters FROM [s].[product]), N'')
+        ORDER BY (CASE WHEN NULLIF(TRIM(@TrimCharacters FROM [s].[category]), N'') IS NULL THEN 0 ELSE 1 END) DESC, [s].[source_row_number] ASC
+      ) AS [__df_dimension_rank]
+    FROM [stg].[superstore_sales] AS [s]
+    WHERE NULLIF(TRIM(@TrimCharacters FROM [s].[product]), N'') IS NOT NULL
+  )
+  MERGE [dw].[dim_product] WITH (HOLDLOCK) AS [target]
+  USING (SELECT [r].[product] AS [product], COALESCE([r].[category], N'Unknown') AS [category] FROM [Ranked] AS [r] WHERE [r].[__df_dimension_rank] = 1) AS [source]
+  ON [target].[product] = [source].[product]
+  WHEN MATCHED AND EXISTS (SELECT [source].[category] EXCEPT SELECT [target].[category]) THEN
+    UPDATE SET [target].[category] = [source].[category], [target].[updated_at] = SYSUTCDATETIME()
+  WHEN NOT MATCHED BY TARGET THEN
+    INSERT ([product], [category], [created_at], [updated_at])
+    VALUES ([source].[product], [source].[category], SYSUTCDATETIME(), SYSUTCDATETIME());
+  SET @RowsOut = @RowsOut + @@ROWCOUNT;
+  IF OBJECT_ID(N'[dw].[dim_region]', N'U') IS NULL
+    CREATE TABLE [dw].[dim_region] (
+      [region_key] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+      [region] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+      [created_at] DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+      [updated_at] DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+  IF NOT EXISTS (SELECT 1 FROM [dw].[dim_region] WHERE [region_key] = -1)
+  BEGIN
+    SET IDENTITY_INSERT [dw].[dim_region] ON;
+    SET @IdentityTable = N'[dw].[dim_region]';
+    INSERT INTO [dw].[dim_region] ([region_key], [region], [created_at], [updated_at])
+    VALUES (-1, NULL, SYSUTCDATETIME(), SYSUTCDATETIME());
+    SET IDENTITY_INSERT [dw].[dim_region] OFF;
+    SET @IdentityTable = NULL;
+  END;
+  -- Rank before replacing null text attributes so a populated attribute wins over a blank.
+  ;WITH [Ranked] AS (
+    SELECT
+      NULLIF(TRIM(@TrimCharacters FROM [s].[region]), N'') AS [region],
+      ROW_NUMBER() OVER (
+        PARTITION BY NULLIF(TRIM(@TrimCharacters FROM [s].[region]), N'')
+        ORDER BY [s].[source_row_number] ASC
+      ) AS [__df_dimension_rank]
+    FROM [stg].[superstore_sales] AS [s]
+    WHERE NULLIF(TRIM(@TrimCharacters FROM [s].[region]), N'') IS NOT NULL
+  )
+  MERGE [dw].[dim_region] WITH (HOLDLOCK) AS [target]
+  USING (SELECT [r].[region] AS [region] FROM [Ranked] AS [r] WHERE [r].[__df_dimension_rank] = 1) AS [source]
+  ON [target].[region] = [source].[region]
+  WHEN NOT MATCHED BY TARGET THEN
+    INSERT ([region], [created_at], [updated_at])
+    VALUES ([source].[region], SYSUTCDATETIME(), SYSUTCDATETIME());
+  SET @RowsOut = @RowsOut + @@ROWCOUNT;
+  SET @RowsIn = (SELECT COUNT_BIG(*) FROM [stg].[superstore_sales]);
+  INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+  VALUES (@RunId, N'03_dimensions', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Succeeded', N'Completed.');
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  IF @IdentityTable IS NOT NULL
+  BEGIN
+    BEGIN TRY
+      EXEC(N'SET IDENTITY_INSERT ' + @IdentityTable + N' OFF;');
+    END TRY
+    BEGIN CATCH
+      -- Preserve the original load error if the session setting cannot be reset.
+    END CATCH;
+  END;
+  IF OBJECT_ID(N'[etl].[run_log]', N'U') IS NOT NULL
+    INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+    VALUES (@RunId, N'03_dimensions', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Failed', ERROR_MESSAGE());
+  THROW;
+END CATCH;
+",
+  },
+  {
+    "description": "Converts staged values, records rejected rows, and loads the fact with dimension keys. Applies your duplicate and incremental options while preserving the saved grain.",
+    "name": "04_fact.sql",
+    "sql": "-- DataForge: 04_fact
+-- Project: Superstore sales
+-- Generated: 2026-10-27T12:00:00.000Z
+-- Source file: superstore_sales.csv
+-- Review before running. SQL Server 2019+. No script is executed by DataForge.
+USE [DataForge];
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+
+DECLARE @RunId UNIQUEIDENTIFIER = TRY_CONVERT(UNIQUEIDENTIFIER, SESSION_CONTEXT(N'DataForgeRunId:11111111-1111-4111-8111-111111111111'));
+IF @RunId IS NULL SET @RunId = NEWID();
+EXEC [sys].[sp_set_session_context] @key = N'DataForgeRunId:11111111-1111-4111-8111-111111111111', @value = @RunId;
+DECLARE @StartedAt DATETIME2(3) = SYSUTCDATETIME();
+DECLARE @RowsIn BIGINT = 0, @RowsOut BIGINT = 0, @RowsRejected BIGINT = 0;
+DECLARE @TrimCharacters NVARCHAR(100) = NCHAR(9) + NCHAR(10) + NCHAR(11) + NCHAR(12) + NCHAR(13) + NCHAR(32) + NCHAR(160) + NCHAR(5760) + NCHAR(8192) + NCHAR(8193) + NCHAR(8194) + NCHAR(8195) + NCHAR(8196) + NCHAR(8197) + NCHAR(8198) + NCHAR(8199) + NCHAR(8200) + NCHAR(8201) + NCHAR(8202) + NCHAR(8232) + NCHAR(8233) + NCHAR(8239) + NCHAR(8287) + NCHAR(12288) + NCHAR(65279);
+BEGIN TRY
+  BEGIN TRANSACTION;
+  -- Grain: one row per Order ID
+
+  IF OBJECT_ID(N'[dw].[fact_sales]', N'U') IS NULL
+  BEGIN
+    CREATE TABLE [dw].[fact_sales] (
+    [fact_sales_key] INT IDENTITY(1, 1) NOT NULL CONSTRAINT [pk_fact_sales] PRIMARY KEY,
+    [date_key] INT NOT NULL DEFAULT (-1),
+    [customer_key] INT NOT NULL DEFAULT (-1),
+    [product_key] INT NOT NULL DEFAULT (-1),
+    [region_key] INT NOT NULL DEFAULT (-1),
+    [order_id] NVARCHAR(50) COLLATE Latin1_General_100_BIN2 NULL,
+    [sales] DECIMAL(18, 2) NULL,
+    [quantity] INT NULL,
+    [discount] DECIMAL(18, 2) NULL,
+    [profit] DECIMAL(18, 2) NULL
+    );
+  END;
+
+  IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'fk_fact_sales_date_key')
+    ALTER TABLE [dw].[fact_sales] WITH CHECK ADD CONSTRAINT [fk_fact_sales_date_key] FOREIGN KEY ([date_key]) REFERENCES [dw].[dim_date] ([DateKey]);
+  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_date_key')
+    CREATE NONCLUSTERED INDEX [ix_fact_sales_date_key] ON [dw].[fact_sales] ([date_key]);
+
+  IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'fk_fact_sales_customer_key')
+    ALTER TABLE [dw].[fact_sales] WITH CHECK ADD CONSTRAINT [fk_fact_sales_customer_key] FOREIGN KEY ([customer_key]) REFERENCES [dw].[dim_customer] ([customer_key]);
+  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_customer_key')
+    CREATE NONCLUSTERED INDEX [ix_fact_sales_customer_key] ON [dw].[fact_sales] ([customer_key]);
+
+  IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'fk_fact_sales_product_key')
+    ALTER TABLE [dw].[fact_sales] WITH CHECK ADD CONSTRAINT [fk_fact_sales_product_key] FOREIGN KEY ([product_key]) REFERENCES [dw].[dim_product] ([product_key]);
+  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_product_key')
+    CREATE NONCLUSTERED INDEX [ix_fact_sales_product_key] ON [dw].[fact_sales] ([product_key]);
+
+  IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'fk_fact_sales_region_key')
+    ALTER TABLE [dw].[fact_sales] WITH CHECK ADD CONSTRAINT [fk_fact_sales_region_key] FOREIGN KEY ([region_key]) REFERENCES [dw].[dim_region] ([region_key]);
+  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_region_key')
+    CREATE NONCLUSTERED INDEX [ix_fact_sales_region_key] ON [dw].[fact_sales] ([region_key]);
+
+  -- Full refresh replaces the fact, while descriptive dimension members remain available.
+
+  TRUNCATE TABLE [dw].[fact_sales];
+
+  DROP TABLE IF EXISTS [#DF_Candidates];
+  DROP TABLE IF EXISTS [#DF_Source];
+
+  -- Duplicate removal is off: every staging row remains a source observation.
+  SELECT [s].[order_id], [s].[order_date], [s].[customer_name], [s].[segment], [s].[region], [s].[product], [s].[category], [s].[sales], [s].[quantity], [s].[discount], [s].[profit], [s].[source_row_number]
+  INTO [#DF_Source]
+  FROM [stg].[superstore_sales] AS [s];
+
+  SELECT [s].*,
+    TRY_CONVERT(DECIMAL(18, 2), [etl].[normalize_number](NULLIF(TRIM(@TrimCharacters FROM [s].[sales]), N''))) AS [__df_value_7],
+    TRY_CONVERT(INT, [etl].[normalize_number](NULLIF(TRIM(@TrimCharacters FROM [s].[quantity]), N''))) AS [__df_value_8],
+    TRY_CONVERT(DECIMAL(18, 2), [etl].[normalize_number](NULLIF(TRIM(@TrimCharacters FROM [s].[discount]), N''))) AS [__df_value_9],
+    TRY_CONVERT(DECIMAL(18, 2), [etl].[normalize_number](NULLIF(TRIM(@TrimCharacters FROM [s].[profit]), N''))) AS [__df_value_10],
+    NULLIF(TRIM(@TrimCharacters FROM [s].[order_id]), N'') AS [__df_value_0],
+    COALESCE(TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 23), TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 126), TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 101)) AS [__df_value_1],
+    NULLIF(TRIM(@TrimCharacters FROM [s].[customer_name]), N'') AS [__df_value_2],
+    NULLIF(TRIM(@TrimCharacters FROM [s].[product]), N'') AS [__df_value_5],
+    NULLIF(TRIM(@TrimCharacters FROM [s].[region]), N'') AS [__df_value_4],
+    CAST(N'' AS NVARCHAR(MAX)) + CASE WHEN NULLIF(TRIM(@TrimCharacters FROM [s].[sales]), N'') IS NOT NULL AND TRY_CONVERT(DECIMAL(18, 2), [etl].[normalize_number](NULLIF(TRIM(@TrimCharacters FROM [s].[sales]), N''))) IS NULL THEN N'Invalid measure: Sales; ' ELSE N'' END + CASE WHEN NULLIF(TRIM(@TrimCharacters FROM [s].[quantity]), N'') IS NOT NULL AND TRY_CONVERT(INT, [etl].[normalize_number](NULLIF(TRIM(@TrimCharacters FROM [s].[quantity]), N''))) IS NULL THEN N'Invalid measure: Quantity; ' ELSE N'' END + CASE WHEN NULLIF(TRIM(@TrimCharacters FROM [s].[discount]), N'') IS NOT NULL AND TRY_CONVERT(DECIMAL(18, 2), [etl].[normalize_number](NULLIF(TRIM(@TrimCharacters FROM [s].[discount]), N''))) IS NULL THEN N'Invalid measure: Discount; ' ELSE N'' END + CASE WHEN NULLIF(TRIM(@TrimCharacters FROM [s].[profit]), N'') IS NOT NULL AND TRY_CONVERT(DECIMAL(18, 2), [etl].[normalize_number](NULLIF(TRIM(@TrimCharacters FROM [s].[profit]), N''))) IS NULL THEN N'Invalid measure: Profit; ' ELSE N'' END + CASE WHEN NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N'') IS NOT NULL AND COALESCE(TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 23), TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 126), TRY_CONVERT(DATE, NULLIF(TRIM(@TrimCharacters FROM [s].[order_date]), N''), 101)) IS NULL THEN N'Invalid date: Order Date; ' ELSE N'' END AS [__df_reject_reason]
+  INTO [#DF_Candidates]
+  FROM [#DF_Source] AS [s];
+
+
+
+  SET @RowsIn = (SELECT COUNT_BIG(*) FROM [#DF_Candidates]);
+  DELETE FROM [dw].[reject_rows] WHERE [run_id] = @RunId;
+  INSERT INTO [dw].[reject_rows] ([run_id], [source_row_number], [reason], [raw_json])
+  SELECT @RunId, [s].[source_row_number], [s].[__df_reject_reason],
+    (SELECT [s].[order_id] AS [order_id], [s].[order_date] AS [order_date], [s].[customer_name] AS [customer_name], [s].[segment] AS [segment], [s].[region] AS [region], [s].[product] AS [product], [s].[category] AS [category], [s].[sales] AS [sales], [s].[quantity] AS [quantity], [s].[discount] AS [discount], [s].[profit] AS [profit] FOR JSON PATH, INCLUDE_NULL_VALUES, WITHOUT_ARRAY_WRAPPER)
+  FROM [#DF_Candidates] AS [s]
+  WHERE [s].[__df_reject_reason] <> N'';
+  SET @RowsRejected = @@ROWCOUNT;
+
+  -- sales: SUM (additive); stored at source-row grain.
+  -- quantity: SUM (additive); stored at source-row grain.
+  -- discount: AVG (non-additive); stored at source-row grain.
+  -- profit: SUM (additive); stored at source-row grain.
+  INSERT INTO [dw].[fact_sales] ([date_key], [customer_key], [product_key], [region_key], [order_id], [sales], [quantity], [discount], [profit])
+  SELECT ISNULL([dimension_1].[DateKey], -1), ISNULL([dimension_2].[customer_key], -1), ISNULL([dimension_3].[product_key], -1), ISNULL([dimension_4].[region_key], -1), [s].[__df_value_0], [s].[__df_value_7], [s].[__df_value_8], [s].[__df_value_9], [s].[__df_value_10]
+  FROM [#DF_Candidates] AS [s]
+  LEFT JOIN [dw].[dim_date] AS [dimension_1] ON [dimension_1].[Date] = [s].[__df_value_1] AND [dimension_1].[DateKey] <> -1
+  LEFT JOIN [dw].[dim_customer] AS [dimension_2] ON [dimension_2].[customer_name] = [s].[__df_value_2] AND [dimension_2].[customer_key] <> -1
+  LEFT JOIN [dw].[dim_product] AS [dimension_3] ON [dimension_3].[product] = [s].[__df_value_5] AND [dimension_3].[product_key] <> -1
+  LEFT JOIN [dw].[dim_region] AS [dimension_4] ON [dimension_4].[region] = [s].[__df_value_4] AND [dimension_4].[region_key] <> -1
+  WHERE [s].[__df_reject_reason] = N'';
+  SET @RowsOut = @@ROWCOUNT;
+
+  DROP TABLE [#DF_Candidates];
+  DROP TABLE [#DF_Source];
+  INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+  VALUES (@RunId, N'04_fact', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Succeeded', N'Completed.');
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  IF OBJECT_ID(N'[etl].[run_log]', N'U') IS NOT NULL
+    INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+    VALUES (@RunId, N'04_fact', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Failed', ERROR_MESSAGE());
+  THROW;
+END CATCH;
+",
+  },
+  {
+    "description": "Reconciles eligible staging rows with inserted facts and rejected rows, then checks keys. Shows rejected examples and applies the saved measure aggregations for review.",
+    "name": "05_checks.sql",
+    "sql": "-- DataForge: 05_checks
+-- Project: Superstore sales
+-- Generated: 2026-10-27T12:00:00.000Z
+-- Source file: superstore_sales.csv
+-- Review before running. SQL Server 2019+. No script is executed by DataForge.
+USE [DataForge];
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+
+DECLARE @RunId UNIQUEIDENTIFIER = TRY_CONVERT(UNIQUEIDENTIFIER, SESSION_CONTEXT(N'DataForgeRunId:11111111-1111-4111-8111-111111111111'));
+IF @RunId IS NULL SET @RunId = NEWID();
+EXEC [sys].[sp_set_session_context] @key = N'DataForgeRunId:11111111-1111-4111-8111-111111111111', @value = @RunId;
+DECLARE @StartedAt DATETIME2(3) = SYSUTCDATETIME();
+DECLARE @RowsIn BIGINT = 0, @RowsOut BIGINT = 0, @RowsRejected BIGINT = 0;
+DECLARE @TrimCharacters NVARCHAR(100) = NCHAR(9) + NCHAR(10) + NCHAR(11) + NCHAR(12) + NCHAR(13) + NCHAR(32) + NCHAR(160) + NCHAR(5760) + NCHAR(8192) + NCHAR(8193) + NCHAR(8194) + NCHAR(8195) + NCHAR(8196) + NCHAR(8197) + NCHAR(8198) + NCHAR(8199) + NCHAR(8200) + NCHAR(8201) + NCHAR(8202) + NCHAR(8232) + NCHAR(8233) + NCHAR(8239) + NCHAR(8287) + NCHAR(12288) + NCHAR(65279);
+BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @StagingRows BIGINT = (SELECT COUNT_BIG(*) FROM [stg].[superstore_sales]);
+  DECLARE @FactRows BIGINT = (SELECT COUNT_BIG(*) FROM [dw].[fact_sales]);
+  DECLARE @EligibleRows BIGINT = NULL, @LoadedRows BIGINT = NULL, @LoggedRejected BIGINT = NULL;
+  SELECT TOP (1) @EligibleRows = [rows_in], @LoadedRows = [rows_out], @LoggedRejected = [rows_rejected]
+  FROM [etl].[run_log]
+  WHERE [run_id] = @RunId AND [step] = N'04_fact' AND [status] = N'Succeeded'
+  ORDER BY [finished_at] DESC, [started_at] DESC;
+  DECLARE @RejectedRows BIGINT = (SELECT COUNT_BIG(*) FROM [dw].[reject_rows] WHERE [run_id] = @RunId);
+  -- In incremental mode, compare this run's inserts to eligible staging rows; total fact rows include earlier runs.
+  -- Excluded rows are exact duplicates and/or rows at or before the incremental date watermark.
+  SELECT @RunId AS [run_id], @StagingRows AS [staging_rows], @FactRows AS [total_fact_rows],
+    @EligibleRows AS [eligible_staging_rows], @StagingRows - @EligibleRows AS [excluded_source_rows],
+    @LoadedRows AS [facts_inserted_this_run], @RejectedRows AS [rejected_this_run],
+    CAST(CASE WHEN @EligibleRows = @LoadedRows + @RejectedRows AND @RejectedRows = @LoggedRejected AND @FactRows = @LoadedRows THEN 1 ELSE 0 END AS BIT) AS [row_counts_reconcile];
+  SELECT N'date_key' AS [foreign_key], COUNT_BIG(*) AS [orphan_count]
+  FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
+  WHERE [d0].[DateKey] IS NULL;
+  SELECT N'customer_key' AS [foreign_key], COUNT_BIG(*) AS [orphan_count]
+  FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_customer] AS [d1] ON [f].[customer_key] = [d1].[customer_key]
+  WHERE [d1].[customer_key] IS NULL;
+  SELECT N'product_key' AS [foreign_key], COUNT_BIG(*) AS [orphan_count]
+  FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_product] AS [d2] ON [f].[product_key] = [d2].[product_key]
+  WHERE [d2].[product_key] IS NULL;
+  SELECT N'region_key' AS [foreign_key], COUNT_BIG(*) AS [orphan_count]
+  FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_region] AS [d3] ON [f].[region_key] = [d3].[region_key]
+  WHERE [d3].[region_key] IS NULL;
+  SELECT N'fact_sales_key' AS [key_column], COUNT_BIG(*) AS [null_key_count] FROM [dw].[fact_sales] WHERE [fact_sales_key] IS NULL;
+  SELECT N'date_key' AS [key_column], COUNT_BIG(*) AS [null_key_count] FROM [dw].[fact_sales] WHERE [date_key] IS NULL;
+  SELECT N'customer_key' AS [key_column], COUNT_BIG(*) AS [null_key_count] FROM [dw].[fact_sales] WHERE [customer_key] IS NULL;
+  SELECT N'product_key' AS [key_column], COUNT_BIG(*) AS [null_key_count] FROM [dw].[fact_sales] WHERE [product_key] IS NULL;
+  SELECT N'region_key' AS [key_column], COUNT_BIG(*) AS [null_key_count] FROM [dw].[fact_sales] WHERE [region_key] IS NULL;
+  SELECT TOP (10) [run_id], [source_row_number], [reason], [raw_json]
+  FROM [dw].[reject_rows] WHERE [run_id] = @RunId ORDER BY [source_row_number];
+  -- Saved measure aggregations are query recommendations; fact inserts retain the source grain.
+  -- sales: SUM (additive).
+  SELECT N'sales' AS [measure], N'SUM' AS [aggregation], SUM(CAST([f].[sales] AS DECIMAL(38, 6))) AS [value] FROM [dw].[fact_sales] AS [f];
+  -- quantity: SUM (additive).
+  SELECT N'quantity' AS [measure], N'SUM' AS [aggregation], SUM(CAST([f].[quantity] AS DECIMAL(38, 6))) AS [value] FROM [dw].[fact_sales] AS [f];
+  -- discount: AVG (non-additive).
+  SELECT N'discount' AS [measure], N'AVG' AS [aggregation], AVG(CAST([f].[discount] AS DECIMAL(38, 6))) AS [value] FROM [dw].[fact_sales] AS [f];
+  -- profit: SUM (additive).
+  SELECT N'profit' AS [measure], N'SUM' AS [aggregation], SUM(CAST([f].[profit] AS DECIMAL(38, 6))) AS [value] FROM [dw].[fact_sales] AS [f];
+  SET @RowsIn = @StagingRows;
+  SET @RowsOut = @FactRows;
+  SET @RowsRejected = @RejectedRows;
+  INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+  VALUES (@RunId, N'05_checks', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Succeeded', N'Completed.');
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+  IF OBJECT_ID(N'[etl].[run_log]', N'U') IS NOT NULL
+    INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
+    VALUES (@RunId, N'05_checks', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Failed', ERROR_MESSAGE());
+  THROW;
+END CATCH;
+",
+  },
+]
+`;
+
+exports[`transactsql parser coverage > syntax-checks supported emitted statements from every generated file 1`] = `
+[
+  {
+    "file": "00_setup.sql",
+    "parsed": 5,
+    "skipped": [],
+  },
+  {
+    "file": "01_staging.sql",
+    "parsed": 5,
+    "skipped": [],
+  },
+  {
+    "file": "02_dim_date.sql",
+    "parsed": 6,
+    "skipped": [],
+  },
+  {
+    "file": "03_dimensions.sql",
+    "parsed": 9,
+    "skipped": [],
+  },
+  {
+    "file": "04_fact.sql",
+    "parsed": 9,
+    "skipped": [
+      "FOR JSON PATH",
+      "named inline primary-key constraint",
+    ],
+  },
+  {
+    "file": "05_checks.sql",
+    "parsed": 5,
+    "skipped": [],
+  },
+]
+`;

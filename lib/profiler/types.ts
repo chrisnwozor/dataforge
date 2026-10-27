@@ -13,6 +13,10 @@ export interface ProfileColumn {
   isKeyCandidate: boolean;
   isNearKeyCandidate: boolean;
   sampleValues: string[];
+  /** UTF-16 code units before value trimming, used to size raw NVARCHAR staging columns. */
+  maxLength?: number;
+  /** Observed decimal scale, capped at SQL generation's supported six places. */
+  maxDecimalPlaces?: number;
 }
 
 export interface ProfileResult {

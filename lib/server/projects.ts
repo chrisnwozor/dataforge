@@ -36,7 +36,7 @@ export interface ProfileReport {
   raggedRowCount: number;
   raggedRowExamples: { row: number; expected: number; actual: number }[];
   delimiter: string;
-  evidenceVersion?: 2;
+  evidenceVersion?: 2 | 3;
   sampledRows?: (string | null)[][];
   sampledRowsTruncated?: boolean;
 }
@@ -88,12 +88,18 @@ export function findProject(projectId: string): StoredProject | undefined {
 
 interface ColumnRow extends Omit<
   StoredColumnProfile,
-  "isKeyCandidate" | "isNearKeyCandidate" | "sampleValues"
+  | "isKeyCandidate"
+  | "isNearKeyCandidate"
+  | "sampleValues"
+  | "maxLength"
+  | "maxDecimalPlaces"
 > {
   [key: string]: SQLOutputValue;
   isKeyCandidate: number;
   isNearKeyCandidate: number;
   sampleValues: string;
+  maxLength: number | null;
+  maxDecimalPlaces: number | null;
 }
 
 export function readColumnProfiles(projectId: string): StoredColumnProfile[] {
@@ -106,6 +112,7 @@ export function readColumnProfiles(projectId: string): StoredColumnProfile[] {
       COALESCE(null_count, ROUND(null_pct * (SELECT row_count FROM projects WHERE id = project_id) / 100)) AS nullCount,
       min_value AS minValue, max_value AS maxValue, is_key_candidate AS isKeyCandidate,
       is_near_key_candidate AS isNearKeyCandidate,
+      max_length AS maxLength, max_decimal_places AS maxDecimalPlaces,
       sample_values AS sampleValues
     FROM column_profiles WHERE project_id = ? ORDER BY ordinal ASC
   `,
@@ -116,6 +123,8 @@ export function readColumnProfiles(projectId: string): StoredColumnProfile[] {
     isKeyCandidate: row.isKeyCandidate === 1,
     isNearKeyCandidate: row.isNearKeyCandidate === 1,
     sampleValues: JSON.parse(row.sampleValues) as string[],
+    maxLength: row.maxLength ?? undefined,
+    maxDecimalPlaces: row.maxDecimalPlaces ?? undefined,
   }));
 }
 
@@ -141,9 +150,9 @@ export function saveProjectProfile(
   const insertColumn = database.prepare(`
     INSERT INTO column_profiles (project_id, ordinal, name, inferred_type, override_type,
       null_pct, null_count, distinct_count, duplicate_count, min_value, max_value, is_key_candidate,
-      is_near_key_candidate, sample_values)
+      is_near_key_candidate, sample_values, max_length, max_decimal_places)
     VALUES (@projectId, @ordinal, @name, @inferredType, NULL, @nullPct, @nullCount, @distinctCount,
-      @duplicateCount, @minValue, @maxValue, @isKeyCandidate, @isNearKeyCandidate, @sampleValues)
+      @duplicateCount, @minValue, @maxValue, @isKeyCandidate, @isNearKeyCandidate, @sampleValues, @maxLength, @maxDecimalPlaces)
   `);
   insertProject.setAllowBareNamedParameters(true);
   insertColumn.setAllowBareNamedParameters(true);
@@ -176,6 +185,8 @@ export function saveProjectProfile(
         isKeyCandidate: column.isKeyCandidate ? 1 : 0,
         isNearKeyCandidate: column.isNearKeyCandidate ? 1 : 0,
         sampleValues: JSON.stringify(column.sampleValues),
+        maxLength: column.maxLength ?? null,
+        maxDecimalPlaces: column.maxDecimalPlaces ?? null,
       });
     }
   });
@@ -191,7 +202,7 @@ export function profileReport(profile: ProfileResult): ProfileReport {
     raggedRowCount: profile.raggedRowCount,
     raggedRowExamples: profile.raggedRowExamples,
     delimiter: profile.delimiter,
-    evidenceVersion: 2,
+    evidenceVersion: 3,
     sampledRows: profile.sampledRows,
     sampledRowsTruncated: profile.sampledRowsTruncated,
   };
@@ -214,9 +225,14 @@ export async function ensureProjectEvidence(
   if (
     project.duplicateRowCount !== null &&
     project.totalNullCells !== null &&
-    report?.evidenceVersion === 2 &&
+    report?.evidenceVersion === 3 &&
     Array.isArray(report.sampledRows) &&
-    typeof report.sampledRowsTruncated === "boolean"
+    typeof report.sampledRowsTruncated === "boolean" &&
+    !getDatabase()
+      .prepare(
+        "SELECT 1 FROM column_profiles WHERE project_id = ? AND (max_length IS NULL OR max_decimal_places IS NULL) LIMIT 1",
+      )
+      .get(projectId)
   )
     return project;
   const key = join(dataDirectory(), projectId);
@@ -248,7 +264,7 @@ export async function ensureProjectEvidence(
     }
     const database = getDatabase();
     const updateColumn = database.prepare(`
-      UPDATE column_profiles SET null_count = ?, is_key_candidate = ?, is_near_key_candidate = ?
+      UPDATE column_profiles SET null_count = ?, is_key_candidate = ?, is_near_key_candidate = ?, max_length = ?, max_decimal_places = ?
       WHERE project_id = ? AND ordinal = ?
     `);
     withTransaction(database, () => {
@@ -262,6 +278,8 @@ export async function ensureProjectEvidence(
           column.nullCount,
           column.isKeyCandidate ? 1 : 0,
           column.isNearKeyCandidate ? 1 : 0,
+          column.maxLength ?? 0,
+          column.maxDecimalPlaces ?? 0,
           projectId,
           column.ordinal,
         );

@@ -308,7 +308,7 @@ describe("persisted model API", () => {
     expect(readColumnProfiles(project.id)[0].overrideType).toBe("text");
     expect(readColumnProfiles(project.id)[1].nullCount).toBe(2);
     expect(readProfileReport(project.id)).toMatchObject({
-      evidenceVersion: 2,
+      evidenceVersion: 3,
       sampledRows: [
         ["1", null],
         ["1", null],
@@ -318,7 +318,7 @@ describe("persisted model API", () => {
     expect((await saved(project.id)).model.fact.name).toBe("fact_keep_me");
     expect((await saved(project.id)).model.removeExactDuplicates).toBe(true);
     expect(JSON.parse(readFileSync(reportPath, "utf8")).evidenceVersion).toBe(
-      2,
+      3,
     );
   });
 
