@@ -373,7 +373,7 @@ describe("semantic query expressions and context", () => {
     expect(result.sql.match(/LEFT JOIN/g)).toHaveLength(2);
   });
 
-  it("implements ALL with a correlated pre-aggregation scope independent of that grouping and slicer", () => {
+  it("implements additive ALL from shared aggregates before filtering visible groups", () => {
     const result = compileQuery(
       expressionModel(
         "DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[Category])))",
@@ -385,14 +385,19 @@ describe("semantic query expressions and context", () => {
       },
     );
     expect(result.sql).toMatchSnapshot();
-    expect(result.sql).toContain("FROM [__df_base] AS [b]");
-    expect(result.sql).toContain("[g].[a1]");
+    expect(result.sql).not.toContain("[__df_base]");
+    expect(result.sql).toContain(
+      "SUM([s].[__df_v1]) OVER (PARTITION BY [s].[a1])",
+    );
+    expect(result.sql.match(/FROM \[dw\]\.\[fact_sales\]/g)).toHaveLength(1);
     expect(
       result.params.filter((param) => param.value === "Furniture"),
     ).toHaveLength(2);
-    // The grand-total subquery does not correlate category and does not repeat its slicer.
-    const denominator = result.sql.slice(result.sql.indexOf("/ NULLIF("));
-    expect(denominator).not.toContain("[g].[a0]");
+    // The total retains Region but clears Category, and the slicer controls
+    // visible groups only after the window has seen the unfiltered totals.
+    expect(result.sql.indexOf("OVER (PARTITION BY [s].[a1])")).toBeLessThan(
+      result.sql.indexOf("WHERE [s].[__df_group_count] > 0"),
+    );
   });
 
   it.each(["YTD", "MTD", "QTD", "SAMEPERIODLASTYEAR"])(
@@ -502,7 +507,7 @@ describe("semantic query expressions and context", () => {
     );
   });
 
-  it("uses a preaggregation scope when CALCULATE replaces a grouping or slicer column", () => {
+  it("uses a shared conditional aggregate and window when CALCULATE replaces a grouping or slicer", () => {
     const result = compileQuery(
       expressionModel(
         "CALCULATE([Sales], dim_product[Category] = 'Furniture')",
@@ -514,11 +519,10 @@ describe("semantic query expressions and context", () => {
       },
     );
     expect(result.sql).toMatchSnapshot();
-    const measureSql = result.sql.slice(
-      result.sql.indexOf("(SELECT SUM("),
-      result.sql.indexOf(" AS [m0]"),
-    );
-    expect(measureSql).not.toContain("[g].[a0]");
+    expect(result.sql).not.toContain("[__df_base]");
+    expect(result.sql).toContain("SUM(CAST(CASE WHEN");
+    expect(result.sql).toContain("SUM([s].[__df_v0]) OVER ()");
+    expect(result.sql).not.toContain("OVER (PARTITION BY [s].[a0])");
     expect(
       result.params.filter((param) => param.value === "Office"),
     ).toHaveLength(1);
@@ -569,7 +573,7 @@ describe("semantic query expressions and context", () => {
     expect(excluded.sql).toMatch(/NOT IN \(@p0\) AND .* IS NOT NULL/);
   });
 
-  it("limits expanded rendered SQL and surfaces invalid expressions as request errors", () => {
+  it("keeps a deep derived-measure DAG small and surfaces invalid expressions as request errors", () => {
     const model = fixture();
     let previous = "Sales";
     for (let i = 0; i < 16; i++) {
@@ -581,9 +585,9 @@ describe("semantic query expressions and context", () => {
       });
       previous = `Expanded ${i}`;
     }
-    expect(() => compileQuery(model, { measures: ["expanded:15"] })).toThrow(
-      "too complex",
-    );
+    const result = compileQuery(model, { measures: ["expanded:15"] });
+    expect(result.sql.length).toBeLessThan(10_000);
+    expect(result.sql.match(/SUM\(CAST\(\[f\]\.\[sales\]/g)).toHaveLength(1);
     try {
       compileQuery(expressionModel("SUM(fact_sales[Missing])"), {
         measures: ["test"],
@@ -592,6 +596,59 @@ describe("semantic query expressions and context", () => {
       expect(error).toBeInstanceOf(QueryCompileError);
       expect((error as QueryCompileError).status).toBe(400);
     }
+  });
+
+  it("keeps exact distinct and weighted-average totals in their own scopes", () => {
+    for (const aggregate of [
+      "DISTINCTCOUNT(fact_sales[Order ID])",
+      "AVG(fact_sales[Quantity])",
+    ]) {
+      const model = expressionModel(
+        `DIVIDE(${aggregate}, CALCULATE(${aggregate}, ALL(dim_product[Category])))`,
+      );
+      const result = compileQuery(model, {
+        measures: ["test"],
+        rows: [category],
+      });
+      // Summing category distinct counts or averaging category averages would
+      // change the answer when orders repeat or category sizes differ.
+      expect(result.sql).not.toContain("[__df_windows]");
+      expect(result.sql).toContain("FROM [__df_base] AS [b]");
+      const pattern = aggregate.startsWith("AVG")
+        ? /AVG\(CAST/g
+        : /COUNT_BIG\(DISTINCT/g;
+      expect(result.sql.match(pattern)).toHaveLength(2);
+    }
+  });
+
+  it("shares one additive leaf across independent ALL grouping partitions", () => {
+    const model = expressionModel(
+      "CALCULATE([Sales], ALL(dim_product[Category])) + CALCULATE([Sales], ALL(dim_region[Region]))",
+    );
+    const result = compileQuery(model, {
+      measures: ["test"],
+      rows: [category, region],
+    });
+    expect(result.sql.match(/SUM\(CAST\(\[f\]\.\[sales\]/g)).toHaveLength(1);
+    expect(result.sql).toContain("OVER (PARTITION BY [s].[a0])");
+    expect(result.sql).toContain("OVER (PARTITION BY [s].[a1])");
+    expect(result.sql.match(/FROM \[dw\]\.\[fact_sales\]/g)).toHaveLength(1);
+  });
+
+  it("interns a repeated shifted-period aggregate once per time context", () => {
+    const result = compileQuery(
+      expressionModel(
+        "DIVIDE([Sales] - SAMEPERIODLASTYEAR([Sales]), SAMEPERIODLASTYEAR([Sales]))",
+      ),
+      {
+        measures: ["Sales", "test"],
+        rows: [year],
+      },
+    );
+    expect(result.sql.match(/SUM\(CAST\(\[b\]\./g)).toHaveLength(2);
+    const output = result.sql.slice(result.sql.indexOf("[__df_result] AS"));
+    expect(output).not.toContain("SUM(");
+    expect(output).not.toContain("FROM [__df_base]");
   });
 });
 

@@ -1,10 +1,17 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`semantic query expressions and context > applies DIVIDE's alternate only for a null or zero denominator, preserving a null numerator 1`] = `
-"WITH [__df_result] AS (
-  SELECT (CASE WHEN @p1 IS NULL OR @p1 = 0 THEN @p2 ELSE CAST(@p0 AS FLOAT) / NULLIF(@p1, 0) END) AS [m0],
-    COUNT_BIG(*) AS [__df_group_count]
+"WITH [__df_aggregates] AS (
+  SELECT COUNT_BIG(*) AS [__df_group_count]
   FROM [dw].[fact_sales] AS [f]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, (CASE WHEN @p1 IS NULL OR @p1 = 0 THEN @p2 ELSE CAST(@p0 AS FLOAT) / NULLIF(@p1, 0) END) AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[__df_d0] AS [m0]
+  FROM [__df_scalar_0] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[m0]
 FROM [__df_result] AS [r];"
@@ -26,14 +33,27 @@ exports[`semantic query expressions and context > compiles MTD with calendar ran
 [__df_groups] AS (
   SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], MIN([b].[c3]) AS [__df_start], MAX([b].[c3]) AS [__df_end]
   FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p0 AND [b].[c2] = @p1
+  WHERE [b].[c0] = @p1 AND [b].[c2] = @p2
   GROUP BY [b].[c0], [b].[c1]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    [g].[a1],
-    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p2 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1) AND [b].[c3] <= [g].[__df_end]) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p0 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1) AND [b].[c3] <= [g].[__df_end]) AS [__df_v0]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[a1],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [__df_result] AS [r]
@@ -54,10 +74,23 @@ exports[`semantic query expressions and context > compiles PREVIOUSPERIOD MONTH 
   FROM [__df_base] AS [b]
   GROUP BY [b].[c0]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1))) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1))) AS [__df_v0]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [__df_result] AS [r]
@@ -78,10 +111,23 @@ exports[`semantic query expressions and context > compiles PREVIOUSPERIOD QUARTE
   FROM [__df_base] AS [b]
   GROUP BY [b].[c0]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(QUARTER, -1, DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1))) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(QUARTER, -1, DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1))) AS [__df_v0]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [__df_result] AS [r]
@@ -102,10 +148,23 @@ exports[`semantic query expressions and context > compiles PREVIOUSPERIOD YEAR w
   FROM [__df_base] AS [b]
   GROUP BY [b].[c0]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(YEAR, -1, DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1))) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(YEAR, -1, DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1))) AS [__df_v0]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [__df_result] AS [r]
@@ -128,14 +187,27 @@ exports[`semantic query expressions and context > compiles QTD with calendar ran
 [__df_groups] AS (
   SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], MIN([b].[c3]) AS [__df_start], MAX([b].[c3]) AS [__df_end]
   FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p0 AND [b].[c2] = @p1
+  WHERE [b].[c0] = @p1 AND [b].[c2] = @p2
   GROUP BY [b].[c0], [b].[c1]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    [g].[a1],
-    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p2 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1) AND [b].[c3] <= [g].[__df_end]) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p0 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1) AND [b].[c3] <= [g].[__df_end]) AS [__df_v0]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[a1],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [__df_result] AS [r]
@@ -158,14 +230,27 @@ exports[`semantic query expressions and context > compiles SAMEPERIODLASTYEAR wi
 [__df_groups] AS (
   SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], MIN([b].[c3]) AS [__df_start], MAX([b].[c3]) AS [__df_end]
   FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p0 AND [b].[c2] = @p1
+  WHERE [b].[c0] = @p1 AND [b].[c2] = @p2
   GROUP BY [b].[c0], [b].[c1]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    [g].[a1],
-    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p2 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c3] <= DATEADD(YEAR, -1, [g].[__df_end])) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p0 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c3] <= DATEADD(YEAR, -1, [g].[__df_end])) AS [__df_v0]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[a1],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [__df_result] AS [r]
@@ -188,14 +273,27 @@ exports[`semantic query expressions and context > compiles YTD with calendar ran
 [__df_groups] AS (
   SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], MIN([b].[c3]) AS [__df_start], MAX([b].[c3]) AS [__df_end]
   FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p0 AND [b].[c2] = @p1
+  WHERE [b].[c0] = @p1 AND [b].[c2] = @p2
   GROUP BY [b].[c0], [b].[c1]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    [g].[a1],
-    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p2 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1) AND [b].[c3] <= [g].[__df_end]) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p0 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1) AND [b].[c3] <= [g].[__df_end]) AS [__df_v0]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[a1],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [__df_result] AS [r]
@@ -216,37 +314,74 @@ exports[`semantic query expressions and context > compiles YoY and scalar expres
   FROM [__df_base] AS [b]
   GROUP BY [b].[c0]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    (CASE WHEN ((SELECT COUNT_BIG(*) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL))) > @p0) THEN ROUND(ABS((CASE WHEN (SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c2] <= DATEADD(YEAR, -1, [g].[__df_end])) IS NULL OR (SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c2] <= DATEADD(YEAR, -1, [g].[__df_end])) = 0 THEN @p1 ELSE CAST(((SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL))) - (SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c2] <= DATEADD(YEAR, -1, [g].[__df_end]))) AS FLOAT) / NULLIF((SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c2] <= DATEADD(YEAR, -1, [g].[__df_end])), 0) END)), @p2) ELSE @p3 END) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT COUNT_BIG(*) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL))) AS [__df_v0],
+    (SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL))) AS [__df_v1],
+    (SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c2] <= DATEADD(YEAR, -1, [g].[__df_end])) AS [__df_v2]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_v1] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_scalar_2] AS (
+  SELECT [s].*, [s].[__df_v2] AS [__df_d2]
+  FROM [__df_scalar_1] AS [s]
+),
+[__df_scalar_3] AS (
+  SELECT [s].*, (CASE WHEN ([s].[__df_d0] > @p0) THEN ROUND(ABS((CASE WHEN [s].[__df_d2] IS NULL OR [s].[__df_d2] = 0 THEN @p1 ELSE CAST(([s].[__df_d1] - [s].[__df_d2]) AS FLOAT) / NULLIF([s].[__df_d2], 0) END)), @p2) ELSE @p3 END) AS [__df_d3]
+  FROM [__df_scalar_2] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[__df_d3] AS [m0]
+  FROM [__df_scalar_3] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [__df_result] AS [r]
 ORDER BY [r].[a0] ASC;"
 `;
 
-exports[`semantic query expressions and context > implements ALL with a correlated pre-aggregation scope independent of that grouping and slicer 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d0].[category] AS [c0],
-    [d1].[region] AS [c1],
-    [f].[sales] AS [c2]
+exports[`semantic query expressions and context > implements additive ALL from shared aggregates before filtering visible groups 1`] = `
+"WITH [__df_aggregates] AS (
+  SELECT [d0].[category] AS [a0],
+    [d1].[region] AS [a1],
+    SUM(CAST(CASE WHEN [d0].[category] = @p0 THEN [f].[sales] END AS DECIMAL(38, 10))) AS [__df_v0],
+    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v1],
+    COUNT_BIG(CASE WHEN [d0].[category] = @p1 THEN 1 END) AS [__df_group_count]
   FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1
+  GROUP BY [d0].[category], [d1].[region]
 ),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], COUNT_BIG(*) AS [__df_group_count]
-  FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p0
-  GROUP BY [b].[c0], [b].[c1]
+[__df_windows] AS (
+  SELECT [s].*, SUM([s].[__df_v1]) OVER (PARTITION BY [s].[a1]) AS [__df_w0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_windows] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_w0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_scalar_2] AS (
+  SELECT [s].*, (CASE WHEN [s].[__df_d1] IS NULL OR [s].[__df_d1] = 0 THEN NULL ELSE CAST([s].[__df_d0] AS FLOAT) / NULLIF([s].[__df_d1], 0) END) AS [__df_d2]
+  FROM [__df_scalar_1] AS [s]
 ),
 [__df_result] AS (
-  SELECT [g].[a0],
-    [g].[a1],
-    (CASE WHEN (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL))) IS NULL OR (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL))) = 0 THEN NULL ELSE CAST((SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c0] = @p1 AND ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL))) AS FLOAT) / NULLIF((SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL))), 0) END) AS [m0]
-  FROM [__df_groups] AS [g]
+  SELECT [s].[a0],
+    [s].[a1],
+    [s].[__df_d2] AS [m0]
+  FROM [__df_scalar_2] AS [s]
+  WHERE [s].[__df_group_count] > 0
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [__df_result] AS [r]
@@ -269,34 +404,56 @@ exports[`semantic query expressions and context > recomputes time anchors under 
   FROM [__df_base] AS [b]
   GROUP BY [b].[c0]
 ),
-[__df_result] AS (
-  SELECT [g].[a0],
-    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND [b].[c1] >= DATEFROMPARTS(YEAR((SELECT MAX([b].[c1]) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND ([b].[c3] = @p0))), 1, 1) AND [b].[c1] <= (SELECT MAX([b].[c1]) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND ([b].[c3] = @p0))) AS [m0]
+[__df_aggregates] AS (
+  SELECT [g].*,
+    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND [b].[c1] >= DATEFROMPARTS(YEAR((SELECT MAX([b].[c1]) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND ([b].[c3] = @p0))), 1, 1) AND [b].[c1] <= (SELECT MAX([b].[c1]) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND ([b].[c3] = @p0))) AS [__df_v0]
   FROM [__df_groups] AS [g]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [__df_result] AS [r]
 ORDER BY [r].[a0] ASC;"
 `;
 
-exports[`semantic query expressions and context > uses a preaggregation scope when CALCULATE replaces a grouping or slicer column 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d0].[category] AS [c0],
-    [f].[sales] AS [c1]
+exports[`semantic query expressions and context > uses a shared conditional aggregate and window when CALCULATE replaces a grouping or slicer 1`] = `
+"WITH [__df_aggregates] AS (
+  SELECT [d0].[category] AS [a0],
+    SUM(CAST(CASE WHEN ([d0].[category] = @p0) THEN [f].[sales] END AS DECIMAL(38, 10))) AS [__df_v0],
+    COUNT_BIG(CASE WHEN [d0].[category] = @p1 THEN 1 END) AS [__df_group_count]
   FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   WHERE [f].[product_key] <> -1
+  GROUP BY [d0].[category]
 ),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], COUNT_BIG(*) AS [__df_group_count]
-  FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p0
-  GROUP BY [b].[c0]
+[__df_windows] AS (
+  SELECT [s].*, SUM([s].[__df_v0]) OVER () AS [__df_w0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_w0] AS [__df_d0]
+  FROM [__df_windows] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
 ),
 [__df_result] AS (
-  SELECT [g].[a0],
-    (SELECT SUM(CAST(CASE WHEN ([b].[c0] = @p1) THEN [b].[c1] END AS DECIMAL(38, 10))) FROM [__df_base] AS [b]) AS [m0]
-  FROM [__df_groups] AS [g]
+  SELECT [s].[a0],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
+  WHERE [s].[__df_group_count] > 0
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [__df_result] AS [r]
@@ -304,15 +461,29 @@ ORDER BY [r].[a0] ASC;"
 `;
 
 exports[`semantic query expressions and context > uses conditional aggregation for joined CALCULATE filters with every literal bound 1`] = `
-"WITH [__df_result] AS (
+"WITH [__df_aggregates] AS (
   SELECT [d1].[region] AS [a0],
-    SUM(CAST(CASE WHEN ([d0].[category] IN (@p0, @p1)) THEN [f].[sales] END AS DECIMAL(38, 10))) AS [m0],
+    SUM(CAST(CASE WHEN ([d0].[category] IN (@p0, @p1)) THEN [f].[sales] END AS DECIMAL(38, 10))) AS [__df_v0],
     COUNT_BIG(*) AS [__df_group_count]
   FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1
   GROUP BY [d1].[region]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[__df_d1] AS [m0]
+  FROM [__df_scalar_1] AS [s]
+  WHERE [s].[__df_group_count] > 0
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [__df_result] AS [r]
@@ -329,12 +500,12 @@ ORDER BY [count] DESC, [value] ASC;"
 `;
 
 exports[`semantic query validation and grouping > compiles a three-dimension grouped query with deterministic selected ordering and Top N 1`] = `
-"WITH [__df_result] AS (
+"WITH [__df_aggregates] AS (
   SELECT [d0].[category] AS [a0],
     [d1].[region] AS [a1],
     [d2].[segment] AS [a2],
-    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0],
-    COUNT_BIG(*) AS [m1],
+    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v0],
+    COUNT_BIG(*) AS [__df_v1],
     COUNT_BIG(*) AS [__df_group_count]
   FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
@@ -342,6 +513,23 @@ exports[`semantic query validation and grouping > compiles a three-dimension gro
   LEFT JOIN [dw].[dim_customer] AS [d2] ON [f].[customer_key] = [d2].[customer_key]
   WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1
   GROUP BY [d0].[category], [d1].[region], [d2].[segment]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_v1] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[a1],
+    [s].[a2],
+    [s].[__df_d0] AS [m0],
+    [s].[__df_d1] AS [m1]
+  FROM [__df_scalar_1] AS [s]
+  WHERE [s].[__df_group_count] > 0
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[a2], [r].[m0], [r].[m1]
 FROM [__df_result] AS [r]
@@ -349,25 +537,48 @@ ORDER BY [r].[m0] DESC, [r].[a1] ASC;"
 `;
 
 exports[`semantic query validation and grouping > compiles no-group totals with one aggregate row and no unreferenced dimension joins 1`] = `
-"WITH [__df_result] AS (
-  SELECT SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0],
-    COUNT_BIG(*) AS [m1],
+"WITH [__df_aggregates] AS (
+  SELECT SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v0],
+    COUNT_BIG(*) AS [__df_v1],
     COUNT_BIG(*) AS [__df_group_count]
   FROM [dw].[fact_sales] AS [f]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_scalar_1] AS (
+  SELECT [s].*, [s].[__df_v1] AS [__df_d1]
+  FROM [__df_scalar_0] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[__df_d0] AS [m0],
+    [s].[__df_d1] AS [m1]
+  FROM [__df_scalar_1] AS [s]
 )
 SELECT TOP (@__df_limit) [r].[m0], [r].[m1]
 FROM [__df_result] AS [r];"
 `;
 
 exports[`semantic query validation and grouping > compiles one dimension and excludes Unknown only on its foreign key 1`] = `
-"WITH [__df_result] AS (
+"WITH [__df_aggregates] AS (
   SELECT [d0].[category] AS [a0],
-    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0],
+    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v0],
     COUNT_BIG(*) AS [__df_group_count]
   FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   WHERE [f].[product_key] <> -1
   GROUP BY [d0].[category]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[__df_d0] AS [m0]
+  FROM [__df_scalar_0] AS [s]
+  WHERE [s].[__df_group_count] > 0
 )
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [__df_result] AS [r]
@@ -375,11 +586,11 @@ ORDER BY [r].[a0] ASC;"
 `;
 
 exports[`semantic query validation and grouping > returns long pivot rows with a hard 50-column-tuple cap and a truncation signal 1`] = `
-"WITH [__df_result] AS (
+"WITH [__df_aggregates] AS (
   SELECT [d0].[category] AS [a0],
     [d1].[region] AS [a1],
     [d2].[segment] AS [a2],
-    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0],
+    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v0],
     COUNT_BIG(*) AS [__df_group_count]
   FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
@@ -387,6 +598,18 @@ exports[`semantic query validation and grouping > returns long pivot rows with a
   LEFT JOIN [dw].[dim_customer] AS [d2] ON [f].[customer_key] = [d2].[customer_key]
   WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1
   GROUP BY [d0].[category], [d1].[region], [d2].[segment]
+),
+[__df_scalar_0] AS (
+  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
+  FROM [__df_aggregates] AS [s]
+),
+[__df_result] AS (
+  SELECT [s].[a0],
+    [s].[a1],
+    [s].[a2],
+    [s].[__df_d0] AS [m0]
+  FROM [__df_scalar_0] AS [s]
+  WHERE [s].[__df_group_count] > 0
 ),
 [__df_ranked] AS (
   SELECT [r].*, DENSE_RANK() OVER (ORDER BY [r].[a1], [r].[a2]) AS [__df_pivot_rank]

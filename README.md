@@ -311,8 +311,44 @@ The maximum limit is 50,000. Filters use `{ attribute, op, value }`, or `values`
 
 The process-local LRU holds at most **200 entries / 64 MiB**, including slicer results. Keys contain project ID, latest successful run ID, semantic version, connection version, and normalized query options. Successful loads and semantic edits invalidate that project's entries. A restart clears the cache; eviction or an oversized result simply causes a later query to execute again. Returned SQL contains parameter placeholders rather than interpolated values.
 
+### Query performance and timing
+
+Every query response includes a `timings` object, including cache hits and query errors. The **Generated SQL → Timing** section shows the same phases; a phase above 2,000 ms is marked **Slow phase**. The server writes one structured `dataforge.query.timing` record per request, without SQL text, filter values, passwords, or connection secrets.
+
+| Field              | What it measures                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `parseMs`          | Reading/validating the request JSON and query options. Expression parsing belongs to compile time.                                      |
+| `compileMs`        | Loading/checking semantic metadata, resolving measure dependencies, and producing parameterized SQL.                                    |
+| `cacheLookupMs`    | Finding and copying the current cached result.                                                                                          |
+| `poolAcquireMs`    | Waiting for a connection from the bounded process-local query pool.                                                                     |
+| `connectMs`        | Opening the pool's SQL connection/login/TLS path; a warm reused pool reports zero.                                                      |
+| `sendToFirstRowMs` | Sending the request until its first row arrives; for an empty result, until completion. Includes SQL Server execution and network time. |
+| `fetchMs`          | Receiving the remaining rows and completion response after the first row.                                                               |
+| `totalMs`          | The current request's elapsed server time, including Node preparation and result handling.                                              |
+
+Cache hits report fresh request timings, rather than the SQL duration saved with the original result. Their database phases are zero. `elapsedMs` now equals `timings.totalMs`, including Node preparation; the earlier elapsed timer started after compilation and measured only transport/driver work. `totalMs` can be larger than the sum of the displayed phases because it also includes response preparation and cleanup; these are server-side measurements, not the browser's entire network round trip.
+
+Healthy connections are reused across uncached queries; DataForge does not create and close a SQL pool, TLS handshake, and login for every request. The pool admits at most four active queries and 16 queued queries; queue acquisition is capped at 30 seconds. A SQL request has a 30-second deadline, and timeout or AbortSignal cancellation explicitly calls `request.cancel()`. Cleanup waits up to five seconds for cancellation to settle; timed-out or unacknowledged connections are physically closed before their pool lease is released. A query using changed connection settings retires the previous pool. Idle pooled SQL sessions are expected; an active request must finish or be cancelled before its connection is reused.
+
+Measure expansion is memoized by semantic version and measure identity, with bounded caches and cycle/dependency limits preserved. Shared base aggregates are emitted once per filter context, and derived scalar expressions read aggregate columns in an outer SELECT. Adding a ratio does not inline another copy of each referenced aggregate. The regression benchmark uses the Superstore semantic model and these cumulative sets:
+
+1. Sales.
+2. Sales and `Profit Margin % = DIVIDE([Profit], [Sales])`.
+3. Add `Avg Order Value = DIVIDE([Sales], [Distinct Order ID])`.
+4. Add `Sales % of Total = DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[Category])))`.
+5. Add `Furniture Sales = CALCULATE([Sales], dim_product[Category] = 'Furniture')`.
+6. All measures, including more than 30 definitions and their dependencies.
+
+Run `pnpm test tests/semantic-query-performance.test.ts` without SQL Server. The compile budgets are 50 ms per cumulative set and 250 ms for the full set; profiling/fixture creation is outside the timed section. Separate structural tests prevent a measure reference from adding another fact-table source. These Node-only budgets do not establish the cause of a slow SQL Server request on another machine; use its timing phases to separate compilation, pool waiting, login, server execution, and result transfer.
+
+The exact Product + Category regression selects Sales, `Sales % of Category = DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[product])))`, and `Sales % of Grand Total = DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[product]), ALL(dim_product[category])))`. It shares one Sales aggregate, then computes category and grand-total windows. The opt-in SQL Server test requires this warm, uncached query to finish in under 1,000 ms, including Node preparation. A separate local relational test executes the generated grouping/window SQL over all 2,000 sample rows, checks each result against independent sums, and enforces the same one-second local budget; it does not substitute for the live SQL Server measurement. Query requests accept up to 64 selected measures.
+
+For a direct comparison, open [docs/query-timing.sql](docs/query-timing.sql) in SSMS using the same database/login as DataForge. It enables `SET STATISTICS TIME ON` and `SET STATISTICS IO ON`, includes runnable Superstore Category and Product + Category comparisons, and explains how to paste the exact generated SQL and typed parameter declarations. The Generated SQL drawer shows parameter names, types, and values separately, including for failed requests; values remain bound in the executed SQL. Enable **Include Actual Execution Plan** to inspect physical fact scans, row estimates, waits, spills, and implicit conversions. A single textual `FROM` or CTE does not by itself prove a single physical scan.
+
+The generated row limit binds `@__df_limit` as SQL `INT`. Preserve the displayed parameter types in SSMS; check any `CONVERT_IMPLICIT` on filter/join columns before changing casts or indexes. Compare representative parameter values and actual plans before diagnosing parameter sniffing. DataForge does not add `OPTION (RECOMPILE)` speculatively; the SSMS guide shows how to use it only as a measured diagnostic.
+
 ### Columnstore
 
 **Columnstore (recommended)** defaults on in Model and is persisted with the model. After fact loading, `04_fact.sql` ensures a clustered columnstore index and keeps the identity primary key nonclustered, upgrading an older generated clustered primary key when necessary. Incremental loads insert into the columnstore normally. Generated foreign-key rowstore indexes are retained only when columnstore is disabled. This changes the generated warehouse DDL; review the scripts and execute a new load to apply a changed setting.
 
-The opt-in SQL Server integration test also compares semantic Sales by Category with fact-table SQL, checks YoY and Unknown-member behavior, and times a three-dimension query against the loaded Superstore sample. It remains skipped unless the existing integration environment flag and SQL Server settings are supplied.
+The opt-in SQL Server integration test also compares each cumulative Sales/ratio/distinct-count/ALL/CALCULATE set by Category with independent fact-table SQL, checks timing fields and connection reuse, and examines the optimizer's physical plan for an extra fact access when adding Profit Margin %. It retains the YoY, Unknown-member, and three-dimension checks against the loaded Superstore sample. `SHOWPLAN_XML` needs database `SHOWPLAN` permission (included in the documented `db_owner` development setup). The test remains skipped unless the existing integration environment flag and SQL Server settings are supplied.

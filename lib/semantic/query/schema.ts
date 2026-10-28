@@ -57,7 +57,7 @@ export const queryFilterSchema = z
 
 export const semanticQuerySchema = z
   .object({
-    measures: z.array(reference).min(1).max(32),
+    measures: z.array(reference).min(1).max(64),
     rows: z.array(attributeRefSchema).max(12).default([]),
     columns: z.array(attributeRefSchema).max(4).optional(),
     filters: z.array(queryFilterSchema).max(64).default([]),

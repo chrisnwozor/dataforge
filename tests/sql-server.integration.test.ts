@@ -14,11 +14,17 @@ import {
 } from "@/lib/server/connection";
 import { getRun } from "@/lib/server/runs";
 import type { CreateProjectResponse } from "@/lib/server/uploads";
-import { getSemanticModel } from "@/lib/server/semantic";
+import { getSemanticModel, saveSemanticModel } from "@/lib/server/semantic";
 import { runSemanticQuery } from "@/lib/server/semantic-query";
+import { closeQueryPools } from "@/lib/server/query-transport";
+import { compileQuery } from "@/lib/semantic/query/compile";
 import { invalidateSemanticCache } from "@/lib/semantic/query/cache";
 import { quoteIdentifier } from "@/lib/sql/helpers";
-import type { SemanticColumn, SemanticTable } from "@/lib/semantic/types";
+import type {
+  SemanticColumn,
+  SemanticMeasure,
+  SemanticTable,
+} from "@/lib/semantic/types";
 
 /** Opt-in only: these scripts create/modify objects in the supplied disposable database. */
 it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
@@ -135,7 +141,55 @@ it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
         expect(Number(records[1][0].rejects)).toBe(0);
 
         // Use production semantic derivation/compiler/transport, not SQL supplied through an API.
-        const semantic = await getSemanticModel(project.id);
+        let semantic = await getSemanticModel(project.id);
+        const timestamp = new Date().toISOString();
+        const definitions = [
+          ["Profit Margin %", "DIVIDE([Profit], [Sales])", "percent"],
+          [
+            "Avg Order Value",
+            "DIVIDE([Sales], [Distinct Order ID])",
+            "currency",
+          ],
+          [
+            "Sales % of Total",
+            "DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[Category])))",
+            "percent",
+          ],
+          [
+            "Furniture Sales",
+            "CALCULATE([Sales], dim_product[Category] = 'Furniture')",
+            "currency",
+          ],
+          [
+            "Sales % of Category",
+            "DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[product])))",
+            "percent",
+          ],
+          [
+            "Sales % of Grand Total",
+            "DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[product]), ALL(dim_product[category])))",
+            "percent",
+          ],
+        ] as const;
+        const custom: SemanticMeasure[] = definitions.map(
+          ([name, expression, format], index) => ({
+            id: `integration:performance:${index}`,
+            name,
+            expression,
+            format,
+            folder: "Performance investigation",
+            description:
+              "Integration fixture for the reported cumulative measure sets.",
+            isAuto: false,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          }),
+        );
+        semantic = await saveSemanticModel(project.id, {
+          version: semantic.version,
+          measures: [...semantic.measures, ...custom],
+          hierarchies: semantic.hierarchies,
+        });
         const measure = (name: string) => {
           const found = semantic.measures.find((value) => value.name === name);
           if (!found) throw new Error(`Missing sample measure: ${name}`);
@@ -210,6 +264,191 @@ it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
           hideUnknown: true,
         });
         expect(cached.fromCache).toBe(true);
+
+        // Compare every cumulative measure set against independent fact-table SQL.
+        // These calls bypass the result cache but reuse the healthy SQL connection pool.
+        const profitColumn = fact.columns.find(
+          (value) => value.name === "Profit",
+        )!;
+        const orderColumn = fact.columns.find(
+          (value) => value.name === "Order ID",
+        )!;
+        const performanceBaseline = await pool.request().query<{
+          category: string;
+          sales: number;
+          margin: number | null;
+          average_order: number | null;
+          share: number | null;
+          furniture_sales: number | null;
+        }>(`
+          WITH [category_totals] AS (
+            SELECT [p].${quoteIdentifier(category[1].sqlName)} AS [category],
+              SUM([f].${quoteIdentifier(salesColumn.sqlName)}) AS [sales],
+              SUM([f].${quoteIdentifier(profitColumn.sqlName)}) AS [profit],
+              COUNT_BIG(DISTINCT [f].${quoteIdentifier(orderColumn.sqlName)}) AS [orders]
+            FROM ${qualified(fact)} AS [f] ${join(category[0], "p")}
+            GROUP BY [p].${quoteIdentifier(category[1].sqlName)}
+          )
+          SELECT [category], [sales],
+            CAST([profit] AS FLOAT) / NULLIF([sales], 0) AS [margin],
+            CAST([sales] AS FLOAT) / NULLIF([orders], 0) AS [average_order],
+            CAST([sales] AS FLOAT) / NULLIF(SUM([sales]) OVER (), 0) AS [share],
+            SUM(CASE WHEN [category] = N'Furniture' THEN [sales] END) OVER () AS [furniture_sales]
+          FROM [category_totals];
+        `);
+        const expectedMetrics = new Map(
+          performanceBaseline.recordset.map((row) => [row.category, row]),
+        );
+        const cumulativeNames = [
+          "Sales",
+          ...definitions.slice(0, 4).map(([name]) => name),
+        ];
+        for (let count = 1; count <= cumulativeNames.length; count++) {
+          invalidateSemanticCache(project.id);
+          const names = cumulativeNames.slice(0, count);
+          const result = await runSemanticQuery(project.id, {
+            measures: names.map((name) => measure(name).id),
+            rows: [ref(category)],
+          });
+          expect(result.fromCache).toBe(false);
+          expect(result.rowCount).toBe(expectedMetrics.size);
+          expect(result.timings).toBeDefined();
+          expect(result.timings!.connectMs).toBe(0);
+          expect(
+            Object.values(result.timings!).every(
+              (value) => Number.isFinite(value) && value >= 0,
+            ),
+          ).toBe(true);
+          const attributeKey = result.columns.find(
+            (value) => value.role === "attribute",
+          )!.key;
+          const metricNames = {
+            Sales: "sales",
+            "Profit Margin %": "margin",
+            "Avg Order Value": "average_order",
+            "Sales % of Total": "share",
+            "Furniture Sales": "furniture_sales",
+          } as const;
+          for (const row of result.rows) {
+            const expected = expectedMetrics.get(String(row[attributeKey]))!;
+            for (const value of result.columns.filter(
+              (column) => column.role === "measure",
+            )) {
+              const expectedValue =
+                expected[metricNames[value.name as keyof typeof metricNames]];
+              if (expectedValue === null) expect(row[value.key]).toBeNull();
+              else
+                expect(Number(row[value.key])).toBeCloseTo(
+                  Number(expectedValue),
+                  5,
+                );
+            }
+          }
+
+          // SHOWPLAN_XML reports the optimizer's physical plan without executing it.
+          // Check baseline and ratio together: adding a reference cannot add a fact scan.
+          if (count <= 2) {
+            const compiled = compileQuery(semantic, {
+              measures: names.map((name) => measure(name).id),
+              rows: [ref(category)],
+            });
+            // A batch keeps this connection-level diagnostic outside sp_executesql's scope.
+            await pool.request().batch("SET SHOWPLAN_XML ON;");
+            try {
+              const request = pool.request();
+              for (const parameter of compiled.params) {
+                const value = parameter.value;
+                request.input(
+                  parameter.name,
+                  parameter.name === "__df_limit"
+                    ? sql.Int
+                    : typeof value === "number"
+                      ? sql.Float
+                      : typeof value === "boolean"
+                        ? sql.Bit
+                        : sql.NVarChar(sql.MAX),
+                  value,
+                );
+              }
+              const plan = await request.query(compiled.sql);
+              const xml = plan.recordset
+                .flatMap((row) => Object.values(row))
+                .find(
+                  (value) =>
+                    typeof value === "string" && value.includes("ShowPlanXML"),
+                );
+              expect(typeof xml).toBe("string");
+              const scans = (
+                String(xml).match(/<Object\b[^>]*\/>/g) ?? []
+              ).filter(
+                (object) =>
+                  object.includes(`Table="[${fact.sqlName}]"`) &&
+                  object.includes(`Schema="[${fact.schema}]"`),
+              );
+              expect(
+                scans,
+                `${names.join(" + ")} should have one physical fact access`,
+              ).toHaveLength(1);
+            } finally {
+              await pool.request().batch("SET SHOWPLAN_XML OFF;");
+            }
+          }
+        }
+
+        // The reported Product + Category combination must remain below one
+        // second on the warm production path, including Node preparation.
+        const product = column("Product");
+        const exactSharesBaseline = await pool.request().query<{
+          product: string;
+          category: string;
+          sales: number;
+          category_share: number | null;
+          grand_share: number | null;
+        }>(`
+          WITH [product_totals] AS (
+            SELECT [p].${quoteIdentifier(product[1].sqlName)} AS [product], [p].${quoteIdentifier(category[1].sqlName)} AS [category], SUM([f].${quoteIdentifier(salesColumn.sqlName)}) AS [sales]
+            FROM ${qualified(fact)} AS [f] ${join(product[0], "p")}
+            GROUP BY [p].${quoteIdentifier(product[1].sqlName)}, [p].${quoteIdentifier(category[1].sqlName)}
+          )
+          SELECT [product], [category], [sales], CAST([sales] AS FLOAT) / NULLIF(SUM([sales]) OVER (PARTITION BY [category]), 0) AS [category_share],
+            CAST([sales] AS FLOAT) / NULLIF(SUM([sales]) OVER (), 0) AS [grand_share] FROM [product_totals];
+        `);
+        invalidateSemanticCache(project.id);
+        const exactStart = performance.now();
+        const exactShares = await runSemanticQuery(project.id, {
+          measures: [
+            "Sales",
+            "Sales % of Category",
+            "Sales % of Grand Total",
+          ].map((name) => measure(name).id),
+          rows: [ref(product), ref(category)],
+        });
+        expect(performance.now() - exactStart).toBeLessThan(1_000);
+        expect(exactShares.timings!.totalMs).toBeLessThan(1_000);
+        expect(exactShares.timings!.connectMs).toBe(0);
+        expect(exactShares.fromCache).toBe(false);
+        expect(exactShares.rowCount).toBe(exactSharesBaseline.recordset.length);
+        const keyFor = (name: string) =>
+          exactShares.columns.find((column) => column.name === name)!.key;
+        for (const row of exactShares.rows) {
+          const expected = exactSharesBaseline.recordset.find(
+            (value) =>
+              value.product === row[keyFor("Product")] &&
+              value.category === row[keyFor("Category")],
+          )!;
+          expect(Number(row[keyFor("Sales")])).toBeCloseTo(
+            Number(expected.sales),
+            4,
+          );
+          expect(Number(row[keyFor("Sales % of Category")])).toBeCloseTo(
+            Number(expected.category_share),
+            7,
+          );
+          expect(Number(row[keyFor("Sales % of Grand Total")])).toBeCloseTo(
+            Number(expected.grand_share),
+            7,
+          );
+        }
 
         const year = column("Year");
         const date = column("Date");
@@ -301,6 +540,7 @@ it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
       const run = runId ? getRun(runId) : undefined;
       if (run && !isTerminalRun(run.status))
         await cancelRun(run.projectId, run.id);
+      await closeQueryPools();
       closeDatabase();
       vi.unstubAllEnvs();
       await rm(directory, { recursive: true, force: true });

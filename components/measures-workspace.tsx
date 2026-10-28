@@ -32,10 +32,12 @@ import type {
   MeasureFormat,
   SemanticMeasure,
   SemanticModel,
+  SqlParameter,
 } from "@/lib/semantic/types";
 import type {
   AttributeRef,
   QueryResult,
+  QueryTimings,
   QueryValue,
 } from "@/lib/semantic/query/types";
 import { Button } from "./ui/button";
@@ -46,17 +48,23 @@ interface ExpressionValidation {
   ok: boolean;
   astSummary?: unknown;
   sql?: string;
-  params?: { name: string; value: QueryValue }[];
+  params?: SqlParameter[];
   errors: { message: string; position?: number }[];
 }
 type Confirmation =
   | { kind: "delete" | "regenerate" }
   | { kind: "select"; measureId: string | null };
+interface QueryFailureDiagnostics {
+  timings: QueryTimings;
+  sql?: string;
+  params?: SqlParameter[];
+}
 
 class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly diagnostics?: QueryFailureDiagnostics,
   ) {
     super(message);
   }
@@ -69,6 +77,13 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     throw new ApiError(
       body?.error || "The request could not be completed. Try again.",
       response.status,
+      body?.timings && typeof body.timings === "object"
+        ? {
+            timings: body.timings,
+            ...(typeof body.sql === "string" ? { sql: body.sql } : {}),
+            ...(Array.isArray(body.params) ? { params: body.params } : {}),
+          }
+        : undefined,
     );
   return body as T;
 }
@@ -139,9 +154,13 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
   const [querying, setQuerying] = useState(false);
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState("");
+  const [queryDiagnostics, setQueryDiagnostics] =
+    useState<QueryFailureDiagnostics | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<QueryResult | null>(null);
   const [testError, setTestError] = useState("");
+  const [testDiagnostics, setTestDiagnostics] =
+    useState<QueryFailureDiagnostics | null>(null);
   const confirmDialog = useRef<HTMLDialogElement>(null);
   const validationVersion = useRef(0);
   const queryRequest = useRef<AbortController | null>(null);
@@ -168,6 +187,9 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
     setValidating(false);
     setTestResult(null);
     setTestError("");
+    setTestDiagnostics(null);
+    setQueryError("");
+    setQueryDiagnostics(null);
     setSelectedMeasures((current) => {
       const retained = current.filter((item) =>
         next.measures.some((measure) => measure.id === item),
@@ -304,6 +326,7 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
     setError("");
     setTestResult(null);
     setTestError("");
+    setTestDiagnostics(null);
     if (key === "expression") {
       ++validationVersion.current;
       setValidation(null);
@@ -335,6 +358,7 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
     setValidating(false);
     setTestResult(null);
     setTestError("");
+    setTestDiagnostics(null);
     ++validationVersion.current;
   }
 
@@ -439,10 +463,12 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
     if (test) {
       setTesting(true);
       setTestError("");
+      setTestDiagnostics(null);
       setTestResult(null);
     } else {
       setQuerying(true);
       setQueryError("");
+      setQueryDiagnostics(null);
       setQueryResult(null);
     }
     const rows: AttributeRef[] = test
@@ -473,8 +499,15 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
       }
     } catch (cause) {
       if (!controller.signal.aborted && mounted.current) {
-        if (test) setTestError(message(cause));
-        else setQueryError(message(cause));
+        const diagnostics =
+          cause instanceof ApiError ? cause.diagnostics : null;
+        if (test) {
+          setTestError(message(cause));
+          setTestDiagnostics(diagnostics ?? null);
+        } else {
+          setQueryError(message(cause));
+          setQueryDiagnostics(diagnostics ?? null);
+        }
       }
     } finally {
       if (!controller.signal.aborted && mounted.current) {
@@ -488,6 +521,7 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
     queryRequest.current?.abort();
     setQuerying(false);
     setQueryError("Query cancelled.");
+    setQueryDiagnostics(null);
   }
 
   if (loading && !model)
@@ -830,20 +864,44 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                   {testError}
                 </p>
               )}
+              {testDiagnostics && (
+                <SqlPreview
+                  title="Generated SQL"
+                  sql={
+                    testDiagnostics.sql ??
+                    "-- SQL is unavailable for this failed request."
+                  }
+                  timings={testDiagnostics.timings}
+                  params={testDiagnostics.params}
+                  timingLabel="Test value timing breakdown"
+                />
+              )}
               {testResult && (
-                <div className={styles.testValue} role="status">
-                  <span>{draft.name}</span>
-                  <strong>
-                    {displayValue(
-                      testResult.rows[0]?.[testResult.columns[0]?.key] ?? null,
-                      draft.format,
-                    )}
-                  </strong>
-                  <span className={styles.small}>
-                    {testResult.elapsedMs.toFixed(0)} ms ·{" "}
-                    {testResult.fromCache ? "From cache" : "Live query"}
-                  </span>
-                </div>
+                <>
+                  <div className={styles.testValue} role="status">
+                    <span>{draft.name}</span>
+                    <strong>
+                      {displayValue(
+                        testResult.rows[0]?.[testResult.columns[0]?.key] ??
+                          null,
+                        draft.format,
+                      )}
+                    </strong>
+                    <span className={styles.small}>
+                      {(
+                        testResult.timings?.totalMs ?? testResult.elapsedMs
+                      ).toFixed(0)}{" "}
+                      ms · {testResult.fromCache ? "From cache" : "Live query"}
+                    </span>
+                  </div>
+                  <SqlPreview
+                    title="Generated SQL"
+                    sql={testResult.sql}
+                    timings={testResult.timings}
+                    params={testResult.params}
+                    timingLabel="Test value timing breakdown"
+                  />
+                </>
               )}
             </div>
           ) : (
@@ -940,6 +998,8 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                           : current.filter((item) => item !== measure.id),
                       );
                       setQueryResult(null);
+                      setQueryError("");
+                      setQueryDiagnostics(null);
                     }}
                   />
                   <span>{measure.name}</span>
@@ -969,6 +1029,8 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                           : current.filter((item) => item !== attribute.id),
                       );
                       setQueryResult(null);
+                      setQueryError("");
+                      setQueryDiagnostics(null);
                     }}
                   />
                   <span>{attribute.label}</span>
@@ -991,6 +1053,8 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
               onChange={(event) => {
                 setHideUnknown(event.target.checked);
                 setQueryResult(null);
+                setQueryError("");
+                setQueryDiagnostics(null);
               }}
             />{" "}
             Hide Unknown members
@@ -1020,6 +1084,19 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
             {queryError}
           </p>
         )}
+        {queryDiagnostics && (
+          <div className={styles.queryOutput}>
+            <SqlPreview
+              title="Generated SQL"
+              sql={
+                queryDiagnostics.sql ??
+                "-- SQL is unavailable for this failed request."
+              }
+              timings={queryDiagnostics.timings}
+              params={queryDiagnostics.params}
+            />
+          </div>
+        )}
         {queryResult ? (
           <div className={styles.queryOutput}>
             <div className={styles.resultMeta} role="status">
@@ -1028,7 +1105,11 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                 {queryResult.truncated ? " · Limit reached" : ""}
               </span>
               <span>
-                <Clock3 size={11} /> {queryResult.elapsedMs.toFixed(0)} ms{" "}
+                <Clock3 size={11} />{" "}
+                {(
+                  queryResult.timings?.totalMs ?? queryResult.elapsedMs
+                ).toFixed(0)}{" "}
+                ms{" "}
                 <span className={queryResult.fromCache ? styles.cacheHit : ""}>
                   {queryResult.fromCache ? "From cache" : "Live query"}
                 </span>
@@ -1072,14 +1153,19 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                 <p className={styles.emptyList}>No rows matched this query.</p>
               )}
             </div>
-            <SqlPreview title="Generated SQL" sql={queryResult.sql} />
+            <SqlPreview
+              title="Generated SQL"
+              sql={queryResult.sql}
+              timings={queryResult.timings}
+              params={queryResult.params}
+            />
           </div>
-        ) : (
+        ) : !queryError ? (
           <div className={styles.queryEmpty}>
             <Play size={16} />
             <span>Pick a measure, then run your first query.</span>
           </div>
-        )}
+        ) : null}
       </section>
       <dialog
         ref={confirmDialog}
@@ -1128,10 +1214,14 @@ function SqlPreview({
   title,
   sql,
   params,
+  timings,
+  timingLabel = "Query timing breakdown",
 }: {
   title: string;
   sql: string;
   params?: ExpressionValidation["params"];
+  timings?: QueryTimings;
+  timingLabel?: string;
 }) {
   return (
     <details className={styles.sql}>
@@ -1144,14 +1234,67 @@ function SqlPreview({
       </pre>
       {Boolean(params?.length) && (
         <div className={styles.params}>
-          <strong>Parameters</strong>
-          {params!.map((parameter) => (
-            <span key={parameter.name}>
-              <code>@{parameter.name}</code> = {JSON.stringify(parameter.value)}
-            </span>
-          ))}
+          <strong>Parameter values</strong>
+          <pre tabIndex={0} aria-label="Parameter values">
+            <code>{JSON.stringify(params, null, 2)}</code>
+          </pre>
         </div>
       )}
+      {timings && <TimingBreakdown timings={timings} label={timingLabel} />}
     </details>
+  );
+}
+
+const timingPhases: readonly [keyof QueryTimings, string][] = [
+  ["parseMs", "Parse"],
+  ["compileMs", "Compile"],
+  ["cacheLookupMs", "Cache lookup"],
+  ["poolAcquireMs", "Pool acquire"],
+  ["connectMs", "Connect / login"],
+  ["sendToFirstRowMs", "Send to first row"],
+  ["fetchMs", "Fetch rows"],
+  ["totalMs", "Total"],
+];
+
+function TimingBreakdown({
+  timings,
+  label,
+}: {
+  timings: QueryTimings;
+  label: string;
+}) {
+  return (
+    <section className={styles.timing} aria-label={label}>
+      <div className={styles.timingHeader}>
+        <h3>Timing</h3>
+        <span>Phases over 2 seconds are flagged.</span>
+      </div>
+      <dl className={styles.timingGrid}>
+        {timingPhases.map(([key, label]) => {
+          const milliseconds = timings[key];
+          const available = Number.isFinite(milliseconds) && milliseconds >= 0;
+          const slow = available && milliseconds > 2_000;
+          return (
+            <div key={key} className={slow ? styles.timingSlow : undefined}>
+              <dt>{label}</dt>
+              <dd>
+                <span>
+                  {available
+                    ? `${milliseconds.toLocaleString("en-US", {
+                        maximumFractionDigits: 2,
+                      })} ms`
+                    : "Unavailable"}
+                </span>
+                {slow && (
+                  <span className={styles.timingFlag}>
+                    <AlertCircle size={11} aria-hidden="true" /> Slow phase
+                  </span>
+                )}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </section>
   );
 }
