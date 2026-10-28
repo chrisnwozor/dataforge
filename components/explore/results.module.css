@@ -1,0 +1,22 @@
+.viewport { overflow: auto; max-height: 520px; height: min(520px, 60vh); min-height: 240px; width: 100%; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); scrollbar-gutter: stable; }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; white-space: nowrap; }
+.table th, .table td { height: 40px; padding: 8px 14px; border-bottom: 1px solid var(--line); text-align: left; max-width: 360px; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+.table thead th { position: sticky; top: 0; z-index: 1; background: var(--raised); color: var(--muted); font-weight: 500; }
+.table tbody tr:hover { background: var(--hover); }
+.table .numeric { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-geist-mono), monospace; }
+.table tfoot th, .table tfoot td { position: sticky; bottom: 0; background: var(--raised); border-top: 1px solid var(--line-strong); font-weight: 600; }
+.total { background: var(--raised); }
+.member { border: 0; background: none; color: inherit; padding: 2px 0; cursor: pointer; text-align: left; font: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; }
+.member:hover, .member:focus-visible { color: var(--blue); text-decoration-color: currentColor; }
+.member:focus-visible, .viewport:focus-visible { outline: 1px solid #a3a3a3; outline-offset: 2px; }
+.dimmed { filter: saturate(.3); }
+.dimmed .viewport { background: var(--raised); }
+.empty { min-height: 280px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 16px; color: var(--muted); font-size: 13px; padding: 24px; text-align: center; }
+.note { margin: 0 0 12px; padding: 10px 12px; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.skeleton { width: 100%; height: 28px; background: linear-gradient(90deg, var(--raised), var(--hover), var(--raised)); border-radius: 4px; animation: shimmer 1.6s ease-in-out infinite alternate; }
+.skeleton:nth-child(2) { width: 90%; }
+.skeleton:nth-child(3) { width: 80%; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@keyframes shimmer { from { opacity: .5; } to { opacity: 1; } }
+@media (max-width: 600px) { .table th, .table td { padding: 8px 10px; } .viewport { max-height: 440px; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }

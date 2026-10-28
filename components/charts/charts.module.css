@@ -1,0 +1,40 @@
+.chart { min-width: 0; width: 100%; }
+.summary { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0 0 16px; }
+.frame { position: relative; min-width: 0; }
+.svg { display: block; max-width: 100%; overflow: visible; font-family: var(--font-geist-sans), Arial, sans-serif; }
+.axes line { stroke: var(--line); stroke-dasharray: 3 4; }
+.axes text { fill: var(--muted); font-size: 10px; }
+.mark { cursor: default; outline: none; }
+.mark[role="button"] { cursor: pointer; }
+.mark:focus-visible { outline: 1px solid var(--muted); outline-offset: 3px; filter: brightness(1.12); }
+.mark:hover { filter: brightness(1.12); }
+.tooltip { position: absolute; z-index: 2; top: 0; right: 8px; max-width: min(280px, 100%); display: grid; gap: 7px; padding: 11px 13px; border: 1px solid var(--line-strong); border-radius: 7px; color: var(--text); background: var(--surface); box-shadow: 0 4px 18px #0002; pointer-events: none; font-size: 11px; }
+.tooltip strong { font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }
+.tooltip span { display: flex; gap: 20px; justify-content: space-between; color: var(--muted); }
+.tooltip b { color: var(--text); font-family: var(--font-geist-mono), monospace; font-weight: 500; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 18px; padding: 8px 0 0; margin: 0; list-style: none; font-size: 11px; color: var(--muted); }
+.legend li { display: inline-flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.legend li > span { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.note { color: var(--muted); font-size: 11px; line-height: 1.6; margin-top: 12px; }
+.donutLabel { fill: var(--text); font-size: 13px; font-weight: 550; }
+.donutCount { fill: var(--muted); font-size: 11px; }
+.kpiLabel { fill: var(--muted); font-size: 12px; }
+.kpiValue { font-family: var(--font-geist-mono), monospace; font-size: 25px; font-weight: 500; letter-spacing: -0.8px; }
+.kpiContext { fill: var(--muted); font-size: 10px; }
+.fallback { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+.fallback summary { cursor: pointer; color: var(--muted); font-size: 11px; width: fit-content; }
+.fallback summary:focus-visible { outline: 1px solid var(--muted); outline-offset: 3px; border-radius: 2px; }
+.fallback summary span { margin-left: 4px; font-size: 10px; }
+.columnPages { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 11px; }
+.columnPages span { margin-right: auto; }
+.columnPages button { font-size: 11px; padding: 4px 8px; }
+.tableScroll { height: 320px; overflow: auto; margin-top: 12px; border: 1px solid var(--line); border-radius: 5px; }
+.dataTable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; white-space: nowrap; }
+.dataTable th, .dataTable td { padding: 7px 12px; text-align: right; border-bottom: 1px solid var(--line); }
+.dataTable th:first-child { text-align: left; }
+.dataTable tbody th { font-weight: 400; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.dataTable thead th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--raised); font-weight: 500; }
+.dataTable td { font-family: var(--font-geist-mono), monospace; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (max-width: 420px) { .summary { font-size: 11px; } .legend { gap: 7px 12px; } .tooltip { max-width: 220px; } }
+@media (prefers-reduced-motion: reduce) { .chart *, .chart *::before, .chart *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
