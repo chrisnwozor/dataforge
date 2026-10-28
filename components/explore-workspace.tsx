@@ -14,7 +14,8 @@ import { exportChart } from "@/components/charts";
 import { Button } from "./ui/button";
 import { SelectMenu } from "./select-menu";
 import { ExploreFields, type ExploreField } from "./explore/fields";
-import { ExploreFilters, TopNControl, prefetchExploreValues } from "./explore/filters";
+import { ExploreFilters, TopNControl } from "./explore/filters";
+import { prefetchExploreValues } from "@/lib/explore/values";
 import { ExploreResults } from "./explore/results";
 import { buildExploreRequests, useExploreQuery } from "./explore/use-explore-query";
 import styles from "./explore-workspace.module.css";
@@ -60,7 +61,7 @@ function NameDialog({ mode, initialName, busy, error, onSubmit, onClose }: { mod
 }
 
 function TimingPanel({ timings }: { timings?: QueryTimings }) {
-  const labels: [keyof QueryTimings, string][] = [["parseMs", "Parse"], ["compileMs", "Node compile"], ["cacheLookupMs", "Cache lookup"], ["poolAcquireMs", "Pool acquire"], ["connectMs", "Connect"], ["sendToFirstRowMs", "Send → first row"], ["fetchMs", "Fetch"], ["sqlCompileMs", "SQL compile"], ["sqlExecuteMs", "SQL execute"], ["totalMs", "Total"]];
+  const labels: [keyof QueryTimings, string][] = [["parseMs", "Parse"], ["compileMs", "Node compile"], ["cacheLookupMs", "Cache lookup"], ["queueMs", "Database queue"], ["poolAcquireMs", "Pool acquire"], ["connectMs", "Connect"], ["sendToFirstRowMs", "Send → first row"], ["fetchMs", "Fetch"], ["sqlCompileMs", "SQL compile"], ["sqlExecuteMs", "SQL execute"], ["totalMs", "Total"]];
   return <section aria-label="Explore timing breakdown" className={styles.timing}><h3>Timing</h3>{!timings ? <p className={styles.small}>Run a query to see its timing breakdown.</p> : <dl>{labels.map(([key, label]) => <div key={key} className={typeof timings[key] === "number" && timings[key]! > 2000 ? styles.slowPhase : undefined}><dt>{label}{typeof timings[key] === "number" && timings[key]! > 2000 && <span> over 2 s</span>}</dt><dd>{typeof timings[key] === "number" ? `${timings[key]!.toLocaleString("en-US", { maximumFractionDigits: 1 })} ms` : "Unavailable"}</dd></div>)}</dl>}</section>;
 }
 
@@ -85,7 +86,7 @@ function ExploreCanvas({ projectId, model }: { projectId: string; model: Semanti
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor, { keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space"] } }));
   const query = useExploreQuery(projectId, initialized ? config : null);
   const dirty = selectedView !== null && JSON.stringify(selectedView.config) !== JSON.stringify(config);
-  const attributes = useMemo(() => model.tables.flatMap((table) => table.columns.filter((column) => column.role === "attribute").map((column) => ({ ref: { table: table.id, column: column.id }, label: `${table.name} · ${column.name}` }))), [model]);
+  const attributes = useMemo(() => model.tables.flatMap((table) => table.columns.filter((column) => column.role === "attribute").map((column) => ({ ref: { table: table.id, column: column.id }, label: `${table.name} · ${column.name}`, distinctCount: column.distinctCount }))), [model]);
   const fieldLabel = useCallback((field: AttributeRef | string) => {
     if (typeof field === "string") return model.measures.find((measure) => measure.id === field)?.name ?? field;
     const table = model.tables.find((item) => item.id === field.table || item.name === field.table);
@@ -130,7 +131,15 @@ function ExploreCanvas({ projectId, model }: { projectId: string; model: Semanti
     }
   }, [config, initialized, selectedView, dirty]);
 
-  useEffect(() => { prefetchExploreValues(projectId, [...config.filters.map((filter) => filter.attribute), ...config.rows, ...attributes.slice(0, 2).map((item) => item.ref)].slice(0, 2), model.version); }, [projectId, attributes, config.rows, config.filters, model.version]);
+  useEffect(() => {
+    // Background slicers never compete with the current query or its server totals.
+    if (!initialized || query.loading || query.error || !query.result || query.resultConfig !== config) return;
+    const controller = new AbortController();
+    const refs = [...config.filters.map((filter) => filter.attribute), ...config.rows, ...config.columns];
+    const preferred = refs.flatMap((ref) => attributes.filter((item) => attributeKey(item.ref) === attributeKey(ref)));
+    void prefetchExploreValues(projectId, [...preferred, ...attributes], model.version, controller.signal).catch(() => {});
+    return () => controller.abort();
+  }, [projectId, attributes, config, initialized, model.version, query.loading, query.error, query.result, query.resultConfig]);
 
   const addField = useCallback((item: ExploreField, target?: string) => {
     if (target === "filters" && item.kind === "attribute") { setRequestedAttribute(item.field); return; }
@@ -233,7 +242,7 @@ function ExploreCanvas({ projectId, model }: { projectId: string; model: Semanti
           <div className={styles.resultHeading}><h2>{config.options.title || (config.values.length ? `${config.values.map(fieldLabel).join(", ")}${config.rows.length ? ` by ${config.rows.map(fieldLabel).join(" / ")}` : ""}` : "Choose a measure to get started")}</h2></div>
           {drills.length > 0 && <nav className={styles.breadcrumbs} aria-label="Drill path"><Button size="sm" variant="ghost" onClick={() => { const step = drills[drills.length - 1]; dispatch({ type: "replace", config: drillUp(config, step) }); setDrills((previous) => previous.slice(0, -1)); setMember(null); }}><ArrowUp size={12} aria-hidden="true" />Drill up</Button>{drills.map((step, index) => <span key={`${attributeKey(step.attribute)}:${index}`}>{fieldLabel(step.attribute)}: {formatValue(step.value)}<ChevronRight size={12} aria-hidden="true" /></span>)}</nav>}
           {member && <div className={styles.memberMenu} role="region" aria-label="Member actions"><span>{fieldLabel(member.attribute)}: <strong>{formatValue(member.value)}</strong></span><Button size="sm" variant="outline" disabled={!canDrill} onClick={() => { if (!canDrill) return; dispatch({ type: "replace", config: canDrill.config }); setDrills((previous) => [...previous, canDrill.step]); setMember(null); }}>Drill down</Button><Button size="sm" variant="outline" onClick={() => { dispatch({ type: "replace", config: drillThrough(config, member.attribute, member.value) }); setMember(null); }}>Drill through</Button><Button size="icon" variant="ghost" aria-label="Close member actions" onClick={() => setMember(null)}><X size={13} /></Button></div>}
-          {query.loading && query.slow && <div className={styles.queryProgress} role="status"><Loader2 size={14} className={styles.spin} aria-hidden="true" /><span>Query running · {(query.elapsedMs / 1000).toFixed(1)} s</span><Button size="sm" variant="outline" onClick={query.cancel}>Cancel query</Button></div>}
+          {query.loading && query.slow && <div className={styles.queryProgress} role="status"><Loader2 size={14} className={styles.spin} aria-hidden="true" /><span>{query.waiting ? "Waiting for the database..." : "Query running"} · {(query.elapsedMs / 1000).toFixed(1)} s</span><Button size="sm" variant="outline" onClick={query.cancel}>Cancel query</Button></div>}
           {query.error && <div className={styles.queryError} role="alert"><strong>We couldn’t complete this query</strong><p>{query.error.message}</p><div className={styles.toolbarActions}><Button size="sm" variant="outline" onClick={query.retry}>Try again</Button><Button size="sm" variant="ghost" onClick={() => { setRightOpen(true); setRightTab("sql"); }}>View SQL and timing</Button></div></div>}
           {query.totalsError && <p className={styles.error} role="alert">{query.totalsError}</p>}
           <div ref={chartRoot} className={styles.resultRoot} aria-busy={query.loading}>

@@ -2,34 +2,35 @@
 
 exports[`semantic query expressions and context > applies DIVIDE's alternate only for a null or zero denominator, preserving a null numerator 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [f].[fact_key] AS [c0],
   CAST(0 AS INT) AS [__df_k0]
 INTO [#df_base]
-FROM [dw].[fact_sales] AS [f];
+FROM [dw].[fact_sales] AS [f]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
 SELECT CAST(0 AS INT) AS [__df_grain],
   COUNT_BIG(1) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (());
+GROUP BY GROUPING SETS (())
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_grain]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 0;
+WHERE [a].[__df_grain] = 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [__df_d0].[v] AS [m0]
 INTO [#df_result]
 FROM [#df_groups] AS [g]
 
-CROSS APPLY (VALUES ((CASE WHEN NULLIF(@p0, 0) IS NULL THEN @p1 ELSE (CAST(NULL AS FLOAT) / NULLIF(@p0, 0)) END))) AS [__df_d0] ([v]);
+CROSS APPLY (VALUES ((CASE WHEN NULLIF(@p0, 0) IS NULL THEN @p1 ELSE (CAST(NULL AS FLOAT) / NULLIF(@p0, 0)) END))) AS [__df_d0] ([v])
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[m0]
-FROM [#df_result] AS [r];
+FROM [#df_result] AS [r]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_groups];
 DROP TABLE IF EXISTS [#df_agg];
@@ -46,11 +47,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > compiles MTD with calendar range joins and preserves non-date groups 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d2].[Year] AS [c0],
     [d0].[category] AS [c1],
@@ -72,7 +68,8 @@ FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_date] AS [d2] ON [f].[date_key] = [d2].[DateKey]
-WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1;
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -86,19 +83,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain
   COUNT_BIG(CASE WHEN [b].[c0] = @p3 AND [b].[c2] = @p4 THEN 1 END) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0], [__df_k1]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0] AND [a].[__df_k1] = [g].[__df_k1]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 4 AND [d].[__df_k1] = [g].[__df_k1] AND [d].[__df_date] >= DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), MONTH([a].[__df_anchor0_end]), 1) AND [d].[__df_date] <= [a].[__df_anchor0_end]
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [g].[a1],
@@ -108,10 +108,12 @@ FROM [#df_groups] AS [g]
 LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
 CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+ORDER BY [r].[a0] ASC, [r].[a1] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -130,11 +132,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > compiles PREVIOUSPERIOD MONTH without interpolating the period request 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d0].[Year] AS [c0],
     [d0].[Date] AS [c1],
@@ -147,7 +144,8 @@ SELECT [d0].[Year] AS [c0],
 INTO [#df_base]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
-WHERE [f].[date_key] <> -1;
+WHERE [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -159,19 +157,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   COUNT_BIG(1) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 2 AND 1 = 1 AND [d].[__df_date] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), MONTH([a].[__df_anchor0_end]), 1)) AND [d].[__df_date] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), MONTH([a].[__df_anchor0_end]), 1))
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [__df_d1].[v] AS [m0]
@@ -180,10 +181,12 @@ FROM [#df_groups] AS [g]
 LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
 CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC;
+ORDER BY [r].[a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -202,11 +205,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > compiles PREVIOUSPERIOD QUARTER without interpolating the period request 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d0].[Year] AS [c0],
     [d0].[Date] AS [c1],
@@ -219,7 +217,8 @@ SELECT [d0].[Year] AS [c0],
 INTO [#df_base]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
-WHERE [f].[date_key] <> -1;
+WHERE [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -231,19 +230,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   COUNT_BIG(1) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 2 AND 1 = 1 AND [d].[__df_date] >= DATEADD(QUARTER, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), (DATEPART(QUARTER, [a].[__df_anchor0_end]) - 1) * 3 + 1, 1)) AND [d].[__df_date] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), (DATEPART(QUARTER, [a].[__df_anchor0_end]) - 1) * 3 + 1, 1))
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [__df_d1].[v] AS [m0]
@@ -252,10 +254,12 @@ FROM [#df_groups] AS [g]
 LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
 CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC;
+ORDER BY [r].[a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -274,11 +278,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > compiles PREVIOUSPERIOD YEAR without interpolating the period request 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d0].[Year] AS [c0],
     [d0].[Date] AS [c1],
@@ -291,7 +290,8 @@ SELECT [d0].[Year] AS [c0],
 INTO [#df_base]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
-WHERE [f].[date_key] <> -1;
+WHERE [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -303,19 +303,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   COUNT_BIG(1) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 2 AND 1 = 1 AND [d].[__df_date] >= DATEADD(YEAR, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), 1, 1)) AND [d].[__df_date] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), 1, 1))
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [__df_d1].[v] AS [m0]
@@ -324,10 +327,12 @@ FROM [#df_groups] AS [g]
 LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
 CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC;
+ORDER BY [r].[a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -346,11 +351,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > compiles QTD with calendar range joins and preserves non-date groups 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d2].[Year] AS [c0],
     [d0].[category] AS [c1],
@@ -372,7 +372,8 @@ FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_date] AS [d2] ON [f].[date_key] = [d2].[DateKey]
-WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1;
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -386,19 +387,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain
   COUNT_BIG(CASE WHEN [b].[c0] = @p3 AND [b].[c2] = @p4 THEN 1 END) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0], [__df_k1]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0] AND [a].[__df_k1] = [g].[__df_k1]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 4 AND [d].[__df_k1] = [g].[__df_k1] AND [d].[__df_date] >= DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), (DATEPART(QUARTER, [a].[__df_anchor0_end]) - 1) * 3 + 1, 1) AND [d].[__df_date] <= [a].[__df_anchor0_end]
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [g].[a1],
@@ -408,10 +412,12 @@ FROM [#df_groups] AS [g]
 LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
 CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+ORDER BY [r].[a0] ASC, [r].[a1] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -430,11 +436,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > compiles SAMEPERIODLASTYEAR with calendar range joins and preserves non-date groups 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d2].[Year] AS [c0],
     [d0].[category] AS [c1],
@@ -456,7 +457,8 @@ FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_date] AS [d2] ON [f].[date_key] = [d2].[DateKey]
-WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1;
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -470,19 +472,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain
   COUNT_BIG(CASE WHEN [b].[c0] = @p3 AND [b].[c2] = @p4 THEN 1 END) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0], [__df_k1]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0] AND [a].[__df_k1] = [g].[__df_k1]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 4 AND [d].[__df_k1] = [g].[__df_k1] AND [d].[__df_date] >= DATEADD(YEAR, -1, [a].[__df_anchor0_start]) AND [d].[__df_date] <= DATEADD(YEAR, -1, [a].[__df_anchor0_end])
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [g].[a1],
@@ -492,10 +497,12 @@ FROM [#df_groups] AS [g]
 LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
 CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+ORDER BY [r].[a0] ASC, [r].[a1] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -514,11 +521,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > compiles YTD with calendar range joins and preserves non-date groups 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d2].[Year] AS [c0],
     [d0].[category] AS [c1],
@@ -540,7 +542,8 @@ FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_date] AS [d2] ON [f].[date_key] = [d2].[DateKey]
-WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1;
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -554,19 +557,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain
   COUNT_BIG(CASE WHEN [b].[c0] = @p3 AND [b].[c2] = @p4 THEN 1 END) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0], [__df_k1]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0] AND [a].[__df_k1] = [g].[__df_k1]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 4 AND [d].[__df_k1] = [g].[__df_k1] AND [d].[__df_date] >= DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), 1, 1) AND [d].[__df_date] <= [a].[__df_anchor0_end]
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [g].[a1],
@@ -576,10 +582,12 @@ FROM [#df_groups] AS [g]
 LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
 CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+ORDER BY [r].[a0] ASC, [r].[a1] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -598,11 +606,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > compiles YoY and scalar expressions without nested SQL aggregates 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d0].[Year] AS [c0],
     [f].[sales] AS [c1],
@@ -615,7 +618,8 @@ SELECT [d0].[Year] AS [c0],
 INTO [#df_base]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
-WHERE [f].[date_key] <> -1;
+WHERE [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -629,19 +633,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   COUNT_BIG(1) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v2]) AS [__df_v2]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 2 AND 1 = 1 AND [d].[__df_date] >= DATEADD(YEAR, -1, [a].[__df_anchor0_start]) AND [d].[__df_date] <= DATEADD(YEAR, -1, [a].[__df_anchor0_end])
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [__df_d3].[v] AS [m0]
@@ -652,10 +659,12 @@ CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([g].[__df_v1])) AS [__df_d1] ([v])
 CROSS APPLY (VALUES ([t0].[__df_v2])) AS [__df_d2] ([v])
 CROSS APPLY (VALUES ((CASE WHEN ([__df_d0].[v] > @p0) THEN ROUND(ABS((CASE WHEN NULLIF([__df_d2].[v], 0) IS NULL THEN @p1 ELSE (CAST(([__df_d1].[v] - [__df_d2].[v]) AS FLOAT) / NULLIF([__df_d2].[v], 0)) END)), @p2) ELSE NULL END))) AS [__df_d3] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC;
+ORDER BY [r].[a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -674,11 +683,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > implements additive ALL from shared aggregates before filtering visible groups 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_totals];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d0].[category] AS [c0],
     [d1].[region] AS [c1],
@@ -694,7 +698,8 @@ INTO [#df_base]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
-WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1;
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1]) AS [__df_grain],
   [b].[__df_k0],
@@ -706,16 +711,19 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1]) AS [__df_grain],
   COUNT_BIG(CASE WHEN [b].[c0] = @p1 THEN 1 END) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]));
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0], [__df_k1]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 0;
+WHERE [a].[__df_grain] = 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].*, SUM([g].[__df_v1]) OVER (PARTITION BY [g].[__df_k1]) AS [__df_w0]
 INTO [#df_totals]
-FROM [#df_groups] AS [g];
+FROM [#df_groups] AS [g]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT [g].[a0],
   [g].[a1],
   [__df_d2].[v] AS [m0]
@@ -725,10 +733,12 @@ FROM [#df_totals] AS [g]
 CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([g].[__df_w0])) AS [__df_d1] ([v])
 CROSS APPLY (VALUES ((CAST([__df_d0].[v] AS FLOAT) / NULLIF([__df_d1].[v], 0)))) AS [__df_d2] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+ORDER BY [r].[a0] ASC, [r].[a1] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_totals];
 DROP TABLE IF EXISTS [#df_groups];
@@ -747,11 +757,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > recomputes time anchors under CALCULATE filters, then removes date restrictions for the shifted range 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_scope_0];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d0].[category] AS [c0],
     [d1].[Date] AS [c1],
@@ -768,7 +773,8 @@ INTO [#df_base]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[date_key] = [d1].[DateKey]
-WHERE [f].[product_key] <> -1 AND [f].[date_key] <> -1;
+WHERE [f].[product_key] <> -1 AND [f].[date_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
 SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   [b].[__df_k0],
@@ -780,19 +786,22 @@ SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
   COUNT_BIG(1) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_k0], [b].[__df_date]));
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_k0], [b].[__df_date]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 1;
+WHERE [a].[__df_grain] = 1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
 INTO [#df_scope_0]
 FROM [#df_groups] AS [g]
 LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
 LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 0 AND [d].[__df_k0] = [g].[__df_k0] AND [d].[__df_date] >= DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), 1, 1) AND [d].[__df_date] <= [a].[__df_anchor0_end]
-GROUP BY [g].[__df_gid];
+GROUP BY [g].[__df_gid]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
 SELECT [g].[a0],
   [__df_d1].[v] AS [m0]
@@ -801,10 +810,12 @@ FROM [#df_groups] AS [g]
 LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
 CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC;
+ORDER BY [r].[a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_scope_0];
 DROP TABLE IF EXISTS [#df_groups];
@@ -823,11 +834,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > uses a shared conditional aggregate and window when CALCULATE replaces a grouping or slicer 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_totals];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d0].[category] AS [c0],
     [f].[sales] AS [c1],
@@ -838,7 +844,8 @@ SELECT [d0].[category] AS [c0],
 INTO [#df_base]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
-WHERE [f].[product_key] <> -1;
+WHERE [f].[product_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
 SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
   [b].[__df_k0],
@@ -847,16 +854,19 @@ SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
   COUNT_BIG(CASE WHEN [b].[c0] = @p1 THEN 1 END) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0]));
+GROUP BY GROUPING SETS (([b].[__df_k0]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 0;
+WHERE [a].[__df_grain] = 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].*, SUM([g].[__df_v0]) OVER () AS [__df_w0]
 INTO [#df_totals]
-FROM [#df_groups] AS [g];
+FROM [#df_groups] AS [g]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT [g].[a0],
   [__df_d1].[v] AS [m0]
 INTO [#df_result]
@@ -864,10 +874,12 @@ FROM [#df_totals] AS [g]
 
 CROSS APPLY (VALUES ([g].[__df_w0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC;
+ORDER BY [r].[a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_totals];
 DROP TABLE IF EXISTS [#df_groups];
@@ -886,10 +898,6 @@ END CATCH;"
 
 exports[`semantic query expressions and context > uses conditional aggregation for joined CALCULATE filters with every literal bound 1`] = `
 "SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
 BEGIN TRY
 SELECT [d1].[region] AS [c0],
     [f].[sales] AS [c1],
@@ -904,7 +912,8 @@ INTO [#df_base]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
-WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1;
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
 SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
   [b].[__df_k0],
@@ -913,12 +922,14 @@ SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
   COUNT_BIG(1) AS [__df_group_count]
 INTO [#df_agg]
 FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0]));
+GROUP BY GROUPING SETS (([b].[__df_k0]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0]);
 SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
 INTO [#df_groups]
 FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 0;
+WHERE [a].[__df_grain] = 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
 SELECT [g].[a0],
   [__df_d1].[v] AS [m0]
@@ -927,10 +938,12 @@ FROM [#df_groups] AS [g]
 
 CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
 CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
 FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC;
+ORDER BY [r].[a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
 DROP TABLE IF EXISTS [#df_result];
 DROP TABLE IF EXISTS [#df_groups];
 DROP TABLE IF EXISTS [#df_agg];
@@ -946,279 +959,60 @@ END CATCH;"
 `;
 
 exports[`semantic query injection and filter boundaries > compiles capped distinct values and counts using the same safe model joins 1`] = `
-"SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_base];
-BEGIN TRY
-SELECT [d0].[category] AS [c0],
-    [f].[product_key] AS [c1],
-    [d0].[product_key] AS [c2], DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0] INTO [#df_base] FROM [dw].[fact_sales] AS [f]
-  LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key] WHERE [f].[product_key] <> -1;
-CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
-SELECT TOP (@__df_limit) [b].[c0] AS [value], COUNT_BIG(*) AS [count]
-FROM [#df_base] AS [b]
-GROUP BY [b].[c0]
-ORDER BY [count] DESC, [value] ASC;
-DROP TABLE IF EXISTS [#df_base];
-END TRY
-BEGIN CATCH
-DROP TABLE IF EXISTS [#df_base];
-THROW;
-END CATCH;"
+"SELECT TOP (@__df_limit) [d0].[category] AS [value], COUNT_BIG(*) AS [count]
+FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+WHERE [f].[product_key] <> -1
+GROUP BY [d0].[category]
+ORDER BY [count] DESC, [value] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);"
 `;
 
 exports[`semantic query validation and grouping > compiles a three-dimension grouped query with deterministic selected ordering and Top N 1`] = `
-"SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-BEGIN TRY
-SELECT [d0].[category] AS [c0],
-    [d1].[region] AS [c1],
-    [d2].[segment] AS [c2],
-    [f].[sales] AS [c3],
-    [f].[fact_key] AS [c4],
-    [f].[product_key] AS [c5],
-    [d0].[product_key] AS [c6],
-    [f].[region_key] AS [c7],
-    [d1].[region_key] AS [c8],
-    [f].[customer_key] AS [c9],
-    [d2].[customer_key] AS [c10],
-  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0],
-  DENSE_RANK() OVER (ORDER BY [d1].[region]) AS [__df_k1],
-  DENSE_RANK() OVER (ORDER BY [d2].[segment]) AS [__df_k2]
-INTO [#df_base]
+"SELECT TOP (@__df_limit) [d0].[category] AS [a0],
+  [d1].[region] AS [a1],
+  [d2].[segment] AS [a2],
+  SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0],
+  COUNT_BIG(*) AS [m1]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_customer] AS [d2] ON [f].[customer_key] = [d2].[customer_key]
-WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1;
-CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1], [__df_k2]);
-SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_k2]) AS [__df_grain],
-  [b].[__df_k0],
-  [b].[__df_k1],
-  [b].[__df_k2],
-  MAX([b].[c0]) AS [a0],
-  MAX([b].[c1]) AS [a1],
-  MAX([b].[c2]) AS [a2],
-  SUM(CAST([b].[c3] AS DECIMAL(38, 10))) AS [__df_v0],
-  COUNT_BIG(1) AS [__df_v1],
-  COUNT_BIG(1) AS [__df_group_count]
-INTO [#df_agg]
-FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1], [b].[__df_k2]));
-CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0], [__df_k1], [__df_k2]);
-SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1], [a].[__df_k2]) AS [__df_gid], [a].*
-INTO [#df_groups]
-FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 0;
-CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
-SELECT [g].[a0],
-  [g].[a1],
-  [g].[a2],
-  [__df_d0].[v] AS [m0],
-  [__df_d1].[v] AS [m1]
-INTO [#df_result]
-FROM [#df_groups] AS [g]
-
-CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
-CROSS APPLY (VALUES ([g].[__df_v1])) AS [__df_d1] ([v])
-WHERE [g].[__df_group_count] > 0;
-SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[a2], [r].[m0], [r].[m1]
-FROM [#df_result] AS [r]
-ORDER BY [r].[m0] DESC, [r].[a1] ASC;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-END TRY
-BEGIN CATCH
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-THROW;
-END CATCH;"
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1
+GROUP BY [d0].[category], [d1].[region], [d2].[segment]
+ORDER BY [m0] DESC, [a1] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);"
 `;
 
 exports[`semantic query validation and grouping > compiles no-group totals with one aggregate row and no unreferenced dimension joins 1`] = `
-"SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-BEGIN TRY
-SELECT [f].[sales] AS [c0],
-    [f].[fact_key] AS [c1],
-  CAST(0 AS INT) AS [__df_k0]
-INTO [#df_base]
-FROM [dw].[fact_sales] AS [f];
-CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
-SELECT CAST(0 AS INT) AS [__df_grain],
-  SUM(CAST([b].[c0] AS DECIMAL(38, 10))) AS [__df_v0],
-  COUNT_BIG(1) AS [__df_v1],
-  COUNT_BIG(1) AS [__df_group_count]
-INTO [#df_agg]
-FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (());
-CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain]);
-SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_grain]) AS [__df_gid], [a].*
-INTO [#df_groups]
-FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 0;
-CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
-SELECT [__df_d0].[v] AS [m0],
-  [__df_d1].[v] AS [m1]
-INTO [#df_result]
-FROM [#df_groups] AS [g]
-
-CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
-CROSS APPLY (VALUES ([g].[__df_v1])) AS [__df_d1] ([v]);
-SELECT TOP (@__df_limit) [r].[m0], [r].[m1]
-FROM [#df_result] AS [r];
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-END TRY
-BEGIN CATCH
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-THROW;
-END CATCH;"
+"SELECT TOP (@__df_limit) SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0],
+  COUNT_BIG(*) AS [m1]
+FROM [dw].[fact_sales] AS [f]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);"
 `;
 
 exports[`semantic query validation and grouping > compiles one dimension and excludes Unknown only on its foreign key 1`] = `
-"SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-BEGIN TRY
-SELECT [d0].[category] AS [c0],
-    [f].[sales] AS [c1],
-    [f].[fact_key] AS [c2],
-    [f].[product_key] AS [c3],
-    [d0].[product_key] AS [c4],
-  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0]
-INTO [#df_base]
+"SELECT TOP (@__df_limit) [d0].[category] AS [a0],
+  SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
-WHERE [f].[product_key] <> -1;
-CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
-SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
-  [b].[__df_k0],
-  MAX([b].[c0]) AS [a0],
-  SUM(CAST([b].[c1] AS DECIMAL(38, 10))) AS [__df_v0],
-  COUNT_BIG(1) AS [__df_group_count]
-INTO [#df_agg]
-FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0]));
-CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0]);
-SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
-INTO [#df_groups]
-FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 0;
-CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
-SELECT [g].[a0],
-  [__df_d0].[v] AS [m0]
-INTO [#df_result]
-FROM [#df_groups] AS [g]
-
-CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
-WHERE [g].[__df_group_count] > 0;
-SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [#df_result] AS [r]
-ORDER BY [r].[a0] ASC;
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-END TRY
-BEGIN CATCH
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-THROW;
-END CATCH;"
+WHERE [f].[product_key] <> -1
+GROUP BY [d0].[category]
+ORDER BY [a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);"
 `;
 
-exports[`semantic query validation and grouping > returns long pivot rows with a hard 50-column-tuple cap and a truncation signal 1`] = `
-"SET NOCOUNT ON;
-DROP TABLE IF EXISTS [#df_pivot];
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-BEGIN TRY
-SELECT [d0].[category] AS [c0],
-    [d1].[region] AS [c1],
-    [d2].[segment] AS [c2],
-    [f].[sales] AS [c3],
-    [f].[fact_key] AS [c4],
-    [f].[product_key] AS [c5],
-    [d0].[product_key] AS [c6],
-    [f].[region_key] AS [c7],
-    [d1].[region_key] AS [c8],
-    [f].[customer_key] AS [c9],
-    [d2].[customer_key] AS [c10],
-  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0],
-  DENSE_RANK() OVER (ORDER BY [d1].[region]) AS [__df_k1],
-  DENSE_RANK() OVER (ORDER BY [d2].[segment]) AS [__df_k2]
-INTO [#df_base]
+exports[`semantic query validation and grouping > returns a long single-statement pivot with metadata for the server's 50-column cap 1`] = `
+"SELECT TOP (@__df_limit) [d0].[category] AS [a0],
+  [d1].[region] AS [a1],
+  [d2].[segment] AS [a2],
+  SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0]
 FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_customer] AS [d2] ON [f].[customer_key] = [d2].[customer_key]
-WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1;
-CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1], [__df_k2]);
-SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_k2]) AS [__df_grain],
-  [b].[__df_k0],
-  [b].[__df_k1],
-  [b].[__df_k2],
-  MAX([b].[c0]) AS [a0],
-  MAX([b].[c1]) AS [a1],
-  MAX([b].[c2]) AS [a2],
-  SUM(CAST([b].[c3] AS DECIMAL(38, 10))) AS [__df_v0],
-  COUNT_BIG(1) AS [__df_group_count]
-INTO [#df_agg]
-FROM [#df_base] AS [b]
-GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1], [b].[__df_k2]));
-CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0], [__df_k1], [__df_k2]);
-SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1], [a].[__df_k2]) AS [__df_gid], [a].*
-INTO [#df_groups]
-FROM [#df_agg] AS [a]
-WHERE [a].[__df_grain] = 0;
-CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
-SELECT [g].[a0],
-  [g].[a1],
-  [g].[a2],
-  [__df_d0].[v] AS [m0], DENSE_RANK() OVER (ORDER BY [g].[a1], [g].[a2]) AS [__df_pivot_rank]
-INTO [#df_result]
-FROM [#df_groups] AS [g]
-
-CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
-WHERE [g].[__df_group_count] > 0;
-SELECT [r].*, MAX([r].[__df_pivot_rank]) OVER () AS [__df_pivot_total] INTO [#df_pivot] FROM [#df_result] AS [r];
-SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[a2], [r].[m0], [r].[__df_pivot_total]
-FROM [#df_pivot] AS [r]
-WHERE [r].[__df_pivot_rank] <= 50
-ORDER BY [r].[a0] ASC, [r].[a1] ASC, [r].[a2] ASC;
-DROP TABLE IF EXISTS [#df_pivot];
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-END TRY
-BEGIN CATCH
-DROP TABLE IF EXISTS [#df_pivot];
-DROP TABLE IF EXISTS [#df_result];
-DROP TABLE IF EXISTS [#df_groups];
-DROP TABLE IF EXISTS [#df_agg];
-DROP TABLE IF EXISTS [#df_base];
-THROW;
-END CATCH;"
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1
+GROUP BY [d0].[category], [d1].[region], [d2].[segment]
+ORDER BY [a0] ASC, [a1] ASC, [a2] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);"
 `;

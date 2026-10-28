@@ -54,6 +54,22 @@ beforeAll(async () => {
   };
 });
 describe("derived semantic defaults", () => {
+  it("exposes profiled cardinality without SQL lookups and conservative calendar bounds", () => {
+    const semantic = semanticModelSchema.parse(deriveSemanticModel(input));
+    for (const table of semantic.tables) {
+      for (const column of table.columns.filter((entry) => entry.role === "attribute" && entry.sourceColumnId)) {
+        expect(column.distinctCount).toBe(input.columns.find((entry) => String(entry.ordinal) === column.sourceColumnId)?.distinctCount);
+      }
+    }
+    const calendar = semantic.tables.find((table) => table.id === semantic.date?.tableId)!;
+    expect(calendar.columns.find((column) => column.name === "Date")!.distinctCount).toBeGreaterThan(500);
+    expect(calendar.columns.find((column) => column.name === "Month")!.distinctCount).toBe(12);
+    expect(calendar.columns.find((column) => column.name === "Quarter")!.distinctCount).toBe(4);
+    expect(calendar.columns.find((column) => column.name === "Year")!.distinctCount).toBeLessThan(500);
+    const unknown = structuredClone(semantic);
+    unknown.tables[0].columns[0].distinctCount = -1;
+    expect(semanticModelSchema.safeParse(unknown).success).toBe(false);
+  });
   it("supports every default for a wide fact beyond 256 measures and preserves display names", () => {
     const wide = structuredClone(input);
     const source = wide.columns.find((column) => column.name === "Sales")!;

@@ -5,7 +5,7 @@ import {
   QueryCompileError,
 } from "@/lib/semantic/query/compile";
 import { normalizeQuery } from "@/lib/semantic/query/schema";
-import { assertMaterializedShape } from "./helpers/materialized-shape";
+import { assertFastShape, assertMaterializedShape } from "./helpers/materialized-shape";
 import type {
   SemanticMeasure,
   SemanticModel,
@@ -290,8 +290,7 @@ describe("semantic query validation and grouping", () => {
     });
     expect(result.sql).toMatchSnapshot();
     expect(result.sql).not.toContain("JOIN");
-    expect(result.sql).toContain("GROUP BY GROUPING SETS (())");
-    assertMaterializedShape(result.sql);
+    assertFastShape(result.sql, false);
     expect(result.params).toEqual([
       { name: "__df_limit", value: 1001, type: "number" },
     ]);
@@ -303,6 +302,7 @@ describe("semantic query validation and grouping", () => {
       rows: [category],
     });
     expect(result.sql).toMatchSnapshot();
+    assertFastShape(result.sql);
     expect(result.sql.match(/LEFT JOIN/g)).toHaveLength(1);
     expect(result.sql).toContain("[f].[product_key] <> -1");
     expect(result.sql).not.toContain("region_key");
@@ -323,6 +323,7 @@ describe("semantic query validation and grouping", () => {
       orderBy: [{ ref: region, dir: "asc" }],
     });
     expect(result.sql).toMatchSnapshot();
+    assertFastShape(result.sql);
     expect(result.sql.match(/LEFT JOIN/g)).toHaveLength(3);
     expect(result.limit).toBe(10);
     expect(result.params.at(-1)?.value).toBe(11);
@@ -346,7 +347,7 @@ describe("semantic query validation and grouping", () => {
     expect(result.params[0].value).toBe(42);
   });
 
-  it("returns long pivot rows with a hard 50-column-tuple cap and a truncation signal", () => {
+  it("returns a long single-statement pivot with metadata for the server's 50-column cap", () => {
     const result = compileQuery(fixture(), {
       measures: ["sales"],
       rows: [category],
@@ -358,8 +359,7 @@ describe("semantic query validation and grouping", () => {
       columnKeys: ["a1", "a2"],
       measureKeys: ["m0"],
     });
-    expect(result.sql).toContain("[r].[__df_pivot_rank] <= 50");
-    expect(result.sql).toContain("[r].[__df_pivot_total]");
+    assertFastShape(result.sql);
   });
 });
 
@@ -698,8 +698,7 @@ describe("semantic query injection and filter boundaries", () => {
       "m0",
     ]);
     expect(result.sql).not.toContain(longId);
-    expect(result.sql).toContain("[r].[m0] DESC");
-    expect(result.sql).toContain("[r].[a0] ASC");
+    expect(result.sql).toContain("ORDER BY [m0] DESC, [a0] ASC");
   });
 
   it("handles empty/null IN filters and disallows inappropriate typed comparisons", () => {
@@ -746,7 +745,7 @@ describe("semantic query injection and filter boundaries", () => {
       measures: ["sales"],
       filters: [{ attribute: numericSource, op: "gt", value: 0 }],
     });
-    expect(result.sql).toMatch(/\[b\]\.\[c\d+\] > @p0/);
+    expect(result.sql).toMatch(/\[f\]\.\[sales\] > @p0/);
     expect(() =>
       compileQuery(fixture(), { measures: ["sales"], rows: [numericSource] }),
     ).toThrow("measure source");
@@ -770,9 +769,10 @@ describe("semantic query injection and filter boundaries", () => {
       "value",
       "count",
     ]);
-    expect(result.limit).toBe(1000);
+    expect(result.limit).toBe(200);
     expect(result.params).toEqual([
-      { name: "__df_limit", value: 1001, type: "number" },
+      { name: "__df_limit", value: 201, type: "number" },
     ]);
+    assertFastShape(result.sql);
   });
 });

@@ -1,0 +1,104 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`bounded searched distinct-value compiler > uses a single grouped SELECT with TOP 200 plus one truncation probe 1`] = `
+"SELECT TOP (@__df_limit) [d0].[category] AS [value], COUNT_BIG(*) AS [count]
+FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+WHERE [f].[product_key] <> -1
+GROUP BY [d0].[category]
+ORDER BY [count] DESC, [value] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);"
+`;
+
+exports[`single-statement aggregate compiler > snapshots Sales by Category with one warehouse read and grouping operator 1`] = `
+"SELECT TOP (@__df_limit) [d0].[category] AS [a0],
+  SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0]
+FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+WHERE [f].[product_key] <> -1
+GROUP BY [d0].[category]
+ORDER BY [a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);"
+`;
+
+exports[`single-statement aggregate compiler > snapshots ratios in the same GROUP BY with typed filters, ranking and ordering 1`] = `
+"SELECT TOP (@__df_limit) [d0].[product] AS [a0],
+  [d0].[category] AS [a1],
+  SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [m0],
+  (CAST(SUM(CAST([f].[profit] AS DECIMAL(38, 10))) AS FLOAT) / NULLIF(SUM(CAST([f].[sales] AS DECIMAL(38, 10))), 0)) AS [m1],
+  SUM(CAST([f].[quantity] AS DECIMAL(38, 10))) AS [m2],
+  AVG(CAST([f].[discount] AS FLOAT)) AS [m3],
+  SUM(CAST([f].[profit] AS DECIMAL(38, 10))) AS [m4]
+FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+WHERE [f].[product_key] <> -1 AND [d0].[category] = @p0
+GROUP BY [d0].[product], [d0].[category]
+ORDER BY [m0] DESC, [m1] DESC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);"
+`;
+
+exports[`single-statement aggregate compiler > snapshots the materialized context path with bounded query hints and guarded cleanup 1`] = `
+"SET NOCOUNT ON;
+BEGIN TRY
+SELECT [d0].[category] AS [c0],
+    [f].[sales] AS [c1],
+    [f].[fact_sales_key] AS [c2],
+    [f].[product_key] AS [c3],
+    [d0].[product_key] AS [c4],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+WHERE [f].[product_key] <> -1
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
+  [b].[__df_k0],
+  MAX([b].[c0]) AS [a0],
+  SUM(CAST([b].[c1] AS DECIMAL(38, 10))) AS [__df_v0],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]))
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].*, SUM([g].[__df_v0]) OVER () AS [__df_w0]
+INTO [#df_totals]
+FROM [#df_groups] AS [g]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
+SELECT [g].[a0],
+  [__df_d0].[v] AS [m0],
+  [__df_d2].[v] AS [m1]
+INTO [#df_result]
+FROM [#df_totals] AS [g]
+
+CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([g].[__df_w0])) AS [__df_d1] ([v])
+CROSS APPLY (VALUES ((CAST([__df_d0].[v] AS FLOAT) / NULLIF([__df_d1].[v], 0)))) AS [__df_d2] ([v])
+WHERE [g].[__df_group_count] > 0
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
+SELECT TOP (@__df_limit) [r].[a0], [r].[m0], [r].[m1]
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_totals];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_totals];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
+`;

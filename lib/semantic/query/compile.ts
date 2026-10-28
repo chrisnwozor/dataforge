@@ -17,6 +17,8 @@ import type {
 } from "./types";
 import { normalizeQuery } from "./schema";
 import { MaterializedPlan, materializedBatch } from "./materialize";
+import { simpleAggregateValues } from "./simple";
+import { withQueryPlanHints } from "./hints";
 
 export class QueryCompileError extends Error {
   readonly status = 400;
@@ -370,24 +372,6 @@ function compileCheckedQuery(
   builder.addColumn({ table: builder.fact, column: factKey });
   builder.includeSurrogateKeys();
   builder.prepare();
-  let usesTime = false;
-  checked.forEach((expression) =>
-    walk(expression.ast, (node) => {
-      if (node.kind === "call" && timeFunctions.has(node.name)) usesTime = true;
-    }),
-  );
-  const plan = new MaterializedPlan(
-    builder,
-    groups,
-    filters,
-    (message) => new QueryCompileError(message),
-    usesTime,
-  );
-  const values = checked.map((expression, index) =>
-    plan.scalar(measures[index].id, expression.ast),
-  );
-  const { from, unknown } = builder.from();
-  const batch = plan.statements(from, unknown);
   const columns: QueryResultColumn[] = [
     ...groups.map(({ column }, index) => ({
       key: `a${index}`,
@@ -448,6 +432,46 @@ function compileCheckedQuery(
   if (!order.length)
     groups.forEach((_, index) => order.push(`[r].[a${index}] ASC`));
   const limit = query.topN ? Math.min(query.limit, query.topN.n) : query.limit;
+  const pivot = pivotColumns.length ? {
+    rowKeys: rows.map((_, index) => `a${index}`),
+    columnKeys: pivotColumns.map((_, index) => `a${rows.length + index}`),
+    measureKeys: measures.map((_, index) => `m${index}`),
+  } : undefined;
+  const simpleValues = simpleAggregateValues(checked.map((expression) => expression.ast), builder, (message) => new QueryCompileError(message));
+  if (simpleValues) {
+    const { from, unknown } = builder.from();
+    const predicates = [...unknown, ...filters.map((filter) => builder.filter(filter))];
+    builder.params.push({ name: "__df_limit", value: limit + 1, type: "number" });
+    if (builder.params.length > 2_000)
+      throw new QueryCompileError(
+        "The query uses too many parameter values. Reduce the number of filters or selected measures.",
+      );
+    const projection = [
+      ...groups.map((ref, index) => `${builder.column(ref)} AS [a${index}]`),
+      ...simpleValues.map((value, index) => `${value} AS [m${index}]`),
+    ];
+    const sql = withQueryPlanHints(`SELECT TOP (@__df_limit) ${projection.join(",\n  ")}\nFROM ${from}${predicates.length ? `\nWHERE ${predicates.join(" AND ")}` : ""}${groups.length ? `\nGROUP BY ${groups.map((ref) => builder.column(ref)).join(", ")}` : ""}${order.length ? `\nORDER BY ${order.map((value) => value.replace("[r].", "")).join(", ")}` : ""};`);
+    if (sql.length > 1_048_576) throw new QueryCompileError("The compiled query is too complex (maximum 1 MiB of SQL). Choose fewer or simpler measures.");
+    return { sql, params: builder.params, columns, limit, materialized: false, ...(pivot ? { pivot } : {}) };
+  }
+  let usesTime = false;
+  checked.forEach((expression) =>
+    walk(expression.ast, (node) => {
+      if (node.kind === "call" && timeFunctions.has(node.name)) usesTime = true;
+    }),
+  );
+  const plan = new MaterializedPlan(
+    builder,
+    groups,
+    filters,
+    (message) => new QueryCompileError(message),
+    usesTime,
+  );
+  const values = checked.map((expression, index) =>
+    plan.scalar(measures[index].id, expression.ast),
+  );
+  const { from, unknown } = builder.from();
+  const batch = plan.statements(from, unknown);
   builder.params.push({ name: "__df_limit", value: limit + 1, type: "number" });
   const projections = [
     ...groups.map((_, index) => `[g].[a${index}]`),
@@ -486,17 +510,7 @@ function compileCheckedQuery(
     columns,
     limit,
     materialized: true,
-    ...(pivotColumns.length
-      ? {
-          pivot: {
-            rowKeys: rows.map((_, index) => `a${index}`),
-            columnKeys: pivotColumns.map(
-              (_, index) => `a${rows.length + index}`,
-            ),
-            measureKeys: measures.map((_, index) => `m${index}`),
-          },
-        }
-      : {}),
+    ...(pivot ? { pivot } : {}),
   };
 }
 
@@ -513,36 +527,42 @@ export function compileQuery(
   }
 }
 
+export interface DistinctValuesOptions { search?: string; limit?: number }
+
 export function compileDistinctValues(
   model: SemanticModel,
   attribute: AttributeRef,
   hideUnknown = true,
+  options: DistinctValuesOptions = {},
 ): CompiledQuery {
   const resolved = resolveAttribute(model, attribute);
+  const limit = options.limit ?? 200;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200)
+    throw new QueryCompileError("Distinct values limit must be from 1 to 200.");
+  if (options.search !== undefined && (typeof options.search !== "string" || options.search.length > 200))
+    throw new QueryCompileError("Search must contain at most 200 characters.");
   const builder = new SqlBuilder(model, hideUnknown);
   builder.addColumn(resolved);
-  builder.includeSurrogateKeys();
   builder.prepare();
   const { from, unknown } = builder.from();
-  const statements = [
-    `SELECT ${builder.baseProjection()}, DENSE_RANK() OVER (ORDER BY ${builder.column(resolved)}) AS [__df_k0] INTO [#df_base] FROM ${from}${unknown.length ? ` WHERE ${unknown.join(" AND ")}` : ""};`,
-    "CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);",
-  ];
-  const column = builder.column(resolved, "b");
-  const select = `SELECT TOP (@__df_limit) ${column} AS [value], COUNT_BIG(*) AS [count]\nFROM [#df_base] AS [b]\nGROUP BY ${column}\nORDER BY [count] DESC, [value] ASC;`;
+  const column = builder.column(resolved);
+  const predicates = [...unknown];
+  if (options.search) {
+    const escaped = options.search.replace(/[~%_\[]/g, (character) => `~${character}`);
+    const pattern = builder.param(`%${escaped}%`, "string");
+    const value = resolved.column.type === "string" ? column : `CONVERT(NVARCHAR(4000), ${column}${resolved.column.type === "date" ? ", 23" : ""})`;
+    predicates.push(`${value} LIKE ${pattern} ESCAPE N'~'`);
+  }
+  builder.params.push({ name: "__df_limit", value: limit + 1, type: "number" });
+  const sql = withQueryPlanHints(`SELECT TOP (@__df_limit) ${column} AS [value], COUNT_BIG(*) AS [count]\nFROM ${from}${predicates.length ? `\nWHERE ${predicates.join(" AND ")}` : ""}\nGROUP BY ${column}\nORDER BY [count] DESC, [value] ASC;`);
   return {
-    sql: materializedBatch(statements, select, ["#df_base"]),
-    params: [{ name: "__df_limit", value: 1001, type: "number" }],
+    sql,
+    params: builder.params,
     columns: [
-      {
-        key: "value",
-        name: resolved.column.name,
-        type: resolved.column.type,
-        role: "attribute",
-      },
+      { key: "value", name: resolved.column.name, type: resolved.column.type, role: "attribute" },
       { key: "count", name: "Count", type: "number", role: "measure" },
     ],
-    limit: 1000,
-    materialized: true,
+    limit,
+    materialized: false,
   };
 }

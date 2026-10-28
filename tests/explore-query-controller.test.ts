@@ -80,6 +80,38 @@ describe("Explore debounced query controller", () => {
     expect(controller.getSnapshot().loading).toBe(false);
   });
 
+  it("tags main and total requests so the server can prioritize user results over slicers", async () => {
+    const purposes: string[] = [];
+    const controller = create(async (_url, init) => {
+      purposes.push(new Headers(init.headers).get("X-DataForge-Query-Purpose")!);
+      return reply();
+    });
+    controller.configure({ ...view(), viz: "pivot", columns: [{ table: "region", column: "name" }] });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(purposes).toEqual(["main", "totals", "totals", "totals"]);
+  });
+
+  it("shows a cancellable database wait after three seconds, including a queued first request", async () => {
+    const pending = deferred<Response>();
+    let signal: AbortSignal | undefined;
+    const controller = create(async (_url, init) => {
+      signal = init.signal as AbortSignal;
+      return pending.promise;
+    });
+    controller.configure(view());
+    await vi.advanceTimersByTimeAsync(250 + 2_999);
+    expect(controller.getSnapshot()).toMatchObject({ loading: true, slow: true, waiting: false, result: null });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(controller.getSnapshot()).toMatchObject({ loading: true, waiting: true, elapsedMs: 3_000 });
+    controller.cancel();
+    expect(signal?.aborted).toBe(true);
+    expect(controller.getSnapshot()).toMatchObject({ loading: false, waiting: false });
+    pending.resolve(reply(500));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(controller.getSnapshot().result).toBeNull();
+    expect(controller.getSnapshot().error?.message).toContain("cancelled");
+  });
+
   it("aborts a superseded request immediately and ignores stale successful responses", async () => {
     const first = deferred<Response>();
     const second = deferred<Response>();

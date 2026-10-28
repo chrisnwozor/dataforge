@@ -8,6 +8,8 @@ export interface SemanticColumn {
   type: SemanticType;
   role: "key" | "attribute" | "measure-source";
   sourceColumnId?: string;
+  /** Profiled cardinality, or a known bound for generated calendar attributes. */
+  distinctCount?: number;
 }
 export interface SemanticTable {
   id: string;

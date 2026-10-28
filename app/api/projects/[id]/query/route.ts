@@ -50,7 +50,9 @@ export async function POST(
         throw new HttpError(400, "Provide a valid semantic query to export (at most 50,000 rows).");
       body = { ...validated.data, limit: 50_000 };
     }
-    const result = await runSemanticQuery(id, body, request.signal, timing);
+    const priority = request.headers.get("X-DataForge-Query-Purpose") ?? "main";
+    if (priority !== "main" && priority !== "totals") throw new HttpError(400, "Choose main or totals for a semantic query request.");
+    const result = await runSemanticQuery(id, body, request.signal, timing, { priority });
     if (csv) return new Response(resultToCsv(result), {
       headers: {
         "Cache-Control": "no-store",

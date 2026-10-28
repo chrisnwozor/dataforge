@@ -8,7 +8,7 @@ import { SqlStatisticsCollector } from "./sql-statistics";
 
 export const QUERY_REQUEST_TIMEOUT_MS = 30_000;
 export const QUERY_CANCEL_GRACE_MS = 5_000;
-const MAX_CONNECTIONS = 4;
+const MAX_CONNECTIONS = 2;
 const MAX_WAITING_QUERIES = 16;
 interface PhysicalConnection {
   hasError?: boolean;
@@ -87,7 +87,7 @@ const rounded = (milliseconds: number) =>
   Math.round(Math.max(0, milliseconds) * 100) / 100;
 
 /** Bound both open sessions and the application queue, including across configuration changes. */
-function enterQueue(signal?: AbortSignal): Promise<() => void> {
+function enterQueue(signal: AbortSignal | undefined, expiresAt: number): Promise<() => void> {
   checkAbort(signal);
   if (manager.shuttingDown)
     return Promise.reject(
@@ -132,7 +132,7 @@ function enterQueue(signal?: AbortSignal): Promise<() => void> {
           "Timed out waiting for an available SQL Server query connection.",
         ),
       );
-    }, QUERY_REQUEST_TIMEOUT_MS);
+    }, Math.max(0, expiresAt - performance.now()));
     const waiter: Waiter = {
       enter() {
         clearTimeout(timer);
@@ -195,7 +195,13 @@ function getPool(
   };
   // Avoid an extra SELECT 1 on every checkout; reject closed/poisoned sockets locally.
   config.validateConnection = "socket";
-  config.options = { ...config.options, cancelTimeout: QUERY_CANCEL_GRACE_MS };
+  config.options = {
+    ...config.options,
+    cancelTimeout: QUERY_CANCEL_GRACE_MS,
+    // Tedious sends SET ARITHABORT ON in its initial session SQL. Set this
+    // explicitly on every pooled connection, matching SSMS without another RPC.
+    enableArithAbort: true,
+  };
   const pool = new sql.ConnectionPool(config) as ReservablePool;
   pool.on("error", () => {});
   const creationTimes = new WeakMap<PhysicalConnection, number>();
@@ -304,13 +310,24 @@ function bindParameter(
     );
   else request.input(parameter.name, sql.NVarChar(sql.MAX), value);
 }
-/** Only server-produced query batches reach this transport; no endpoint accepts SQL text. */
+export interface QueryExecutionOptions {
+  /** Remaining request budget after admission to the per-project scheduler. */
+  timeoutMs?: number;
+}
+/**
+ * Only server-produced batches reach this transport; no endpoint accepts SQL.
+ * Observers receive final timings, plus a synchronous snapshot on cancellation
+ * so a deadline response can retain measurements while lease cleanup continues.
+ */
 export async function executeCompiledQuery(
   settings: SqlConnectionSettings,
   compiled: CompiledQuery,
   signal?: AbortSignal,
   observe?: (timings: Partial<QueryTimings>) => void,
+  options: QueryExecutionOptions = {},
 ): Promise<Record<string, unknown>[]> {
+  const timeoutMs = Math.min(options.timeoutMs ?? QUERY_REQUEST_TIMEOUT_MS, QUERY_REQUEST_TIMEOUT_MS);
+  const expiresAt = performance.now() + timeoutMs;
   const timings = {
     poolAcquireMs: 0,
     connectMs: 0,
@@ -328,6 +345,8 @@ export async function executeCompiledQuery(
   let sentAt: number | undefined;
   let firstRowAt: number | undefined;
   let finishedAt: number | undefined;
+  let pendingPhase: "queue" | "connect" | "acquire" | undefined;
+  let phaseStartedAt = 0;
   let statisticsEnabled = false;
   let setStatistics: ((enabled: boolean) => Promise<void>) | undefined;
   const statistics = compiled.diagnostics
@@ -339,9 +358,28 @@ export async function executeCompiledQuery(
   const stopped = new Promise<Error>((resolve) => {
     cancelResolve = resolve;
   });
+  const publishTimings = () => {
+    const snapshot = { ...timings };
+    const now = performance.now();
+    // A scheduler can return its deadline response before driver cleanup settles.
+    // Report only elapsed work already observed, including a phase still pending.
+    if (pendingPhase === "queue" || pendingPhase === "acquire")
+      snapshot.poolAcquireMs += now - phaseStartedAt;
+    if (pendingPhase === "connect") snapshot.connectMs += now - phaseStartedAt;
+    if (sentAt !== undefined) {
+      const finished = finishedAt ?? now;
+      snapshot.sendToFirstRowMs = (firstRowAt ?? finished) - sentAt;
+      snapshot.fetchMs = firstRowAt === undefined ? 0 : finished - firstRowAt;
+    }
+    observe?.({
+      ...Object.fromEntries(Object.entries(snapshot).map(([key, value]) => [key, rounded(value)])),
+      ...statistics?.snapshot(),
+    });
+  };
   const cancel = (reason: Error) => {
     if (cancelReason) return;
     cancelReason = reason;
+    publishTimings();
     try {
       request?.cancel();
     } catch {
@@ -354,6 +392,7 @@ export async function executeCompiledQuery(
   const checkCancelled = () => {
     if (cancelReason) throw cancelReason;
     checkAbort(signal);
+    if (performance.now() >= expiresAt) throw new QueryTimeoutError();
   };
   const poison = () => {
     if (!physical) return;
@@ -373,15 +412,22 @@ export async function executeCompiledQuery(
     }
   };
   try {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new QueryTimeoutError();
     checkCancelled();
+    signal?.addEventListener("abort", abort, { once: true });
     const queuedAt = performance.now();
+    pendingPhase = "queue";
+    phaseStartedAt = queuedAt;
     try {
-      leave = await enterQueue(signal);
+      leave = await enterQueue(signal, expiresAt);
     } finally {
       timings.poolAcquireMs = performance.now() - queuedAt;
+      pendingPhase = undefined;
     }
     manager.cancel.add(shutdown);
-    signal?.addEventListener("abort", abort, { once: true });
+    // One budget covers transport queueing, login, checkout, setup and execution.
+    // It never starts afresh after the scheduler or the pool has waited.
+    deadline = setTimeout(() => cancel(new QueryTimeoutError()), Math.max(0, expiresAt - performance.now()));
     if (manager.shuttingDown) throw new QueryAbortedError();
     checkCancelled();
     const sql = await (driverPromise ??= import("mssql").then(
@@ -393,6 +439,8 @@ export async function executeCompiledQuery(
     entry.users++;
     const connectStart = performance.now();
     const wasConnected = entry.connected;
+    pendingPhase = wasConnected ? undefined : "connect";
+    phaseStartedAt = connectStart;
     let connection: boolean;
     try {
       connection = await Promise.race([
@@ -401,10 +449,13 @@ export async function executeCompiledQuery(
       ]);
     } finally {
       timings.connectMs = wasConnected ? 0 : performance.now() - connectStart;
+      pendingPhase = undefined;
     }
     if (!connection) throw cancelReason;
     checkCancelled();
     const acquireStart = performance.now();
+    pendingPhase = "acquire";
+    phaseStartedAt = acquireStart;
     const acquisition = entry.pool.acquire(entry.pool);
     let acquired: { connection: PhysicalConnection } | undefined;
     let acquireMs = 0;
@@ -416,6 +467,7 @@ export async function executeCompiledQuery(
     } finally {
       acquireMs = performance.now() - acquireStart;
       timings.poolAcquireMs += acquireMs;
+      pendingPhase = undefined;
     }
     if (!acquired) {
       const pool = entry.pool;
@@ -501,7 +553,7 @@ export async function executeCompiledQuery(
     if (compiled.diagnostics) await setStatistics(true);
     checkCancelled();
     request = new RequestClass(parent, {
-      requestTimeout: QUERY_REQUEST_TIMEOUT_MS,
+      requestTimeout: Math.max(1, Math.ceil(expiresAt - performance.now())),
     });
     for (const parameter of compiled.params)
       bindParameter(request, sql, parameter);
@@ -523,10 +575,6 @@ export async function executeCompiledQuery(
       });
     checkCancelled();
     sentAt = performance.now();
-    deadline = setTimeout(
-      () => cancel(new QueryTimeoutError()),
-      QUERY_REQUEST_TIMEOUT_MS,
-    );
     const operation = request
       .query(compiled.sql)
       .then((result) => {
@@ -590,11 +638,6 @@ export async function executeCompiledQuery(
     }
     if (cancelReason && (compiled.materialized || compiled.diagnostics))
       poison();
-    if (sentAt !== undefined) {
-      const finished = finishedAt ?? performance.now();
-      timings.sendToFirstRowMs = (firstRowAt ?? finished) - sentAt;
-      timings.fetchMs = firstRowAt === undefined ? 0 : finished - firstRowAt;
-    }
     if (physical && entry) {
       if (poisoned) poison();
       entry.pool.release(physical);
@@ -608,11 +651,6 @@ export async function executeCompiledQuery(
       void closeRetired(entry);
     }
     leave?.();
-    observe?.({
-      ...Object.fromEntries(
-        Object.entries(timings).map(([key, value]) => [key, rounded(value)]),
-      ),
-      ...statistics?.snapshot(),
-    });
+    publishTimings();
   }
 }

@@ -1,6 +1,7 @@
 import type { ResolvedExpr } from "../expr";
 import type { SemanticColumn, SemanticModel, SemanticTable } from "../types";
 import type { QueryFilter } from "./types";
+import { withQueryPlanHints } from "./hints";
 
 type Ref = { table: SemanticTable; column: SemanticColumn };
 type Filter = QueryFilter & { resolved: Ref };
@@ -669,5 +670,6 @@ export function materializedBatch(
     .reverse()
     .map((name) => `DROP TABLE IF EXISTS ${quote(name)};`)
     .join("\n");
-  return `SET NOCOUNT ON;\n${cleanup}\nBEGIN TRY\n${statements.join("\n")}\n${finalSelect}\n${cleanup}\nEND TRY\nBEGIN CATCH\n${cleanup}\nTHROW;\nEND CATCH;`;
+  const work = statements.map((statement) => /^\s*SELECT\b/i.test(statement) ? withQueryPlanHints(statement) : statement);
+  return `SET NOCOUNT ON;\nBEGIN TRY\n${work.join("\n")}\n${withQueryPlanHints(finalSelect)}\n${cleanup}\nEND TRY\nBEGIN CATCH\n${cleanup}\nTHROW;\nEND CATCH;`;
 }

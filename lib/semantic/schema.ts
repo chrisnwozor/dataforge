@@ -56,6 +56,7 @@ const column = z
     type: z.enum(["number", "string", "boolean", "date"]),
     role: z.enum(["key", "attribute", "measure-source"]),
     sourceColumnId: z.string().optional(),
+    distinctCount: z.number().int().nonnegative().safe().optional(),
   })
   .strict();
 export const semanticModelSchema: z.ZodType<SemanticModel> = z

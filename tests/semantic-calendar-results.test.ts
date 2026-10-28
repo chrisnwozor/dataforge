@@ -10,6 +10,7 @@ import {
 } from "./fixtures/superstore-results";
 import { createSuperstoreWarehouse } from "./helpers/superstore-warehouse";
 import { executeMaterializedSqlite } from "./helpers/materialized-sqlite";
+import { assertFastShape, assertMaterializedShape } from "./helpers/materialized-shape";
 
 const names = [
   "Sales",
@@ -58,6 +59,64 @@ const axesCases: SuperstoreAxis[][] = [
   ["Year", "Month"],
   ["Product", "Category"],
 ];
+
+describe("Superstore simple-query and materialized-query equivalence", () => {
+  it.each([[], ...axesCases].map((axes) => [axes.join(" + ") || "grand total", axes] as const))(
+    "preserves every aggregate and ratio by %s",
+    (_name, axes) => {
+      const definitions = [
+        ["Sum", "SUM(fact_sales[Sales])"],
+        ["Average", "AVG(fact_sales[Sales])"],
+        ["Minimum", "MIN(fact_sales[Sales])"],
+        ["Maximum", "MAX(fact_sales[Sales])"],
+        ["Non-null count", "COUNT(fact_sales[Sales])"],
+        ["Row count", "COUNT_BIG(*)"],
+        ["Margin", "DIVIDE(SUM(fact_sales[Profit]), SUM(fact_sales[Sales]))"],
+        ["Sales per quantity", "DIVIDE(SUM(fact_sales[Sales]), SUM(fact_sales[Quantity]))"],
+      ];
+      const testMeasures = definitions.map(([name, expression], index) => ({
+        ...model.measures[0], id: `equivalence:${index}`, name: `Equivalence ${name}`, expression, isAuto: false,
+      }));
+      const fastModel: SemanticModel = { ...model, version: `${model.version}:fast-equivalence`, measures: testMeasures };
+      const materializedModel: SemanticModel = {
+        ...fastModel,
+        version: `${model.version}:materialized-equivalence`,
+        measures: testMeasures.map((measure) => ({
+          ...measure,
+          // This column is neither grouped nor filtered, so removing its
+          // context changes no values while deliberately choosing the old path.
+          expression: `CALCULATE(${measure.expression}, ALL(fact_sales[Order ID]))`,
+        })),
+      };
+      const rows = axes.map((name) => {
+        const table = model.tables.find((table) => table.columns.some((column) => column.name === name))!;
+        return { table: table.id, column: table.columns.find((column) => column.name === name)!.id };
+      });
+      const input = { measures: testMeasures.map((measure) => measure.id), rows };
+      const fast = compileQuery(fastModel, input);
+      const materialized = compileQuery(materializedModel, input);
+      assertFastShape(fast.sql, rows.length > 0);
+      assertMaterializedShape(materialized.sql);
+      const db = createSuperstoreWarehouse(model, observations);
+      try {
+        const actual = executeMaterializedSqlite(db, fast);
+        const expected = executeMaterializedSqlite(db, materialized);
+        expect(actual).toHaveLength(expected.length);
+        expect(fast.columns).toEqual(materialized.columns);
+        for (const [index, record] of actual.entries()) {
+          for (const column of fast.columns) {
+            const value = record[column.key];
+            const reference = expected[index][column.key];
+            if (column.role === "measure" && reference !== null)
+              expect(Number(value), `${column.name} at ${index}`).toBeCloseTo(Number(reference), 5);
+            else expect(value, `${column.name} at ${index}`).toEqual(reference);
+          }
+        }
+      } finally { db.close(); }
+    },
+  );
+});
+
 describe("materialized Superstore numeric results", () => {
   it.each(axesCases.map((axes) => [axes.join(" + "), axes] as const))(
     "keeps measures and time intelligence unchanged by %s",

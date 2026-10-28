@@ -25,6 +25,8 @@ import {
   requireSemanticReady,
 } from "./semantic";
 import { executeCompiledQuery, QueryAbortedError } from "./query-transport";
+import { queryScheduler, queryServerKey, QUERY_SCHEDULE_TIMEOUT_MS, type QueryPriority } from "./query-scheduler";
+import { instantiateQuery } from "./query-instance";
 import {
   addQueryPhase,
   finishQueryTiming,
@@ -58,7 +60,7 @@ function resultFromRows(
 ): QueryResult {
   let truncated = records.length > compiled.limit;
   const source = records.slice(0, compiled.limit);
-  const rows = source.map((record) =>
+  let rows = source.map((record) =>
     Object.fromEntries(
       compiled.columns.map((column) => [
         column.key,
@@ -73,11 +75,13 @@ function resultFromRows(
       const tuple = compiled.pivot.columnKeys.map((key) => row[key]);
       values.set(JSON.stringify(tuple), tuple);
     }
-    if (values.size > 50)
-      throw new HttpError(
-        500,
-        "The generated pivot exceeded its column limit.",
-      );
+    if (values.size > 50) {
+      const visible = new Map([...values].slice(0, 50));
+      rows = rows.filter((row) => visible.has(JSON.stringify(compiled.pivot!.columnKeys.map((key) => row[key]))));
+      values.clear();
+      for (const [key, tuple] of visible) values.set(key, tuple);
+      truncated = true;
+    }
     if (source.some((record) => Number(record.__df_pivot_total) > 50))
       truncated = true;
     pivot = { ...compiled.pivot, columnValues: [...values.values()] };
@@ -156,6 +160,8 @@ async function executeCached(
   signal?: AbortSignal,
   timing: QueryTimingContext = startQueryTiming(),
   diagnostics = false,
+  priority: QueryPriority = "main",
+  expectedRevision = queryScheduler.getRevision(projectId),
 ): Promise<QueryResult> {
   let password = "";
   try {
@@ -203,7 +209,7 @@ async function executeCached(
     const compileStart = performance.now();
     let compiled: CompiledQuery;
     try {
-      compiled = build(model);
+      compiled = instantiateQuery(build(model));
       if (diagnostics) compiled = { ...compiled, diagnostics: true };
     } catch (error) {
       compilationError(error);
@@ -212,11 +218,26 @@ async function executeCached(
     }
     timing.sql = compiled.sql;
     timing.params = compiled.params;
-    const rows = await executeCompiledQuery(
-      ready.settings,
-      compiled,
-      signal,
-      (phases) => {
+    const queueStart = performance.now();
+    let admitted = false;
+    const remaining = QUERY_SCHEDULE_TIMEOUT_MS - (queueStart - timing.startedAt);
+    if (remaining <= 0) throw new HttpError(504, "The query exceeded its timeout before reaching the database.");
+    let rows: Record<string, unknown>[];
+    try {
+      rows = await queryScheduler.schedule({
+        projectId,
+        serverKey: queryServerKey(ready.settings.server, ready.settings.port),
+        priority,
+        expectedRevision,
+        signal,
+        timeoutMs: remaining,
+        onStart: (queuedMs) => { admitted = true; timing.timings.queueMs = queuedMs; },
+      }, (scheduledSignal, timeoutMs) => executeCompiledQuery(
+        ready.settings,
+        compiled,
+        scheduledSignal,
+        (phases) => {
+        if (timing.finished) return;
         for (const phase of [
           "poolAcquireMs",
           "connectMs",
@@ -229,8 +250,13 @@ async function executeCached(
         ] as const)
           if (typeof phases[phase] === "number")
             timing.timings[phase] = Math.max(0, phases[phase]!);
-      },
-    );
+        },
+        { timeoutMs },
+      ));
+    } catch (error) {
+      if (!admitted) timing.timings.queueMs = performance.now() - queueStart;
+      throw error;
+    }
     const result = resultFromRows(compiled, rows, 0);
     // Check cheap revisions instead of deriving/parsing the complete semantic model twice per query.
     const current = await requireSemanticReady(projectId);
@@ -258,6 +284,7 @@ export async function runSemanticQuery(
   input: unknown,
   signal?: AbortSignal,
   timing: QueryTimingContext = startQueryTiming(),
+  options: { priority?: "main" | "totals" } = {},
 ): Promise<QueryResult> {
   let normalized;
   const parseStart = performance.now();
@@ -275,6 +302,8 @@ export async function runSemanticQuery(
       throw failure;
     }
   }
+  const priority = options.priority ?? "main";
+  const revision = priority === "main" ? queryScheduler.beginMain(projectId) : queryScheduler.getRevision(projectId);
   return executeCached(
     projectId,
     { kind: "query", query: normalized },
@@ -282,6 +311,8 @@ export async function runSemanticQuery(
     signal,
     timing,
     normalized.diagnostics === true,
+    priority,
+    revision,
   );
 }
 
@@ -330,21 +361,33 @@ export async function getDistinctValues(
   signal?: AbortSignal,
   hideUnknown = true,
   timing: QueryTimingContext = startQueryTiming(),
+  options: { search?: string; limit?: number; priority?: "values" | "prefetch" } = {},
 ): Promise<QueryResult> {
+  const revision = queryScheduler.getRevision(projectId);
+  const search = options.search?.trim() ?? "";
+  const limit = options.limit ?? 200;
+  if (search.length > 200 || !Number.isInteger(limit) || limit < 1 || limit > 200)
+    throw new HttpError(400, "Search is limited to 200 characters and values to 200 results.");
   return executeCached(
     projectId,
     (model: SemanticModel) => ({
       kind: "values",
       attribute: resolveValueAttribute(model, attribute),
       hideUnknown,
+      search,
+      limit,
     }),
     (model) =>
       compileDistinctValues(
         model,
         resolveValueAttribute(model, attribute),
         hideUnknown,
+        { search, limit },
       ),
     signal,
     timing,
+    false,
+    options.priority ?? "values",
+    revision,
   );
 }

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRequire } from "node:module";
 import type { CompiledQuery, QueryTimings } from "@/lib/semantic/query/types";
 import {
   executeCompiledQuery,
@@ -12,6 +13,8 @@ import {
 interface RequestControl {
   resolve(): void;
   reject(error: Error): void;
+  row(value: Record<string, unknown>): void;
+  info(message: string): void;
 }
 const state = vi.hoisted(() => ({
   events: [] as string[],
@@ -163,7 +166,7 @@ vi.mock("mssql", async () => {
         await new Promise<void>((resolve, reject) => {
           this.reject = reject;
           connection.reject = reject;
-          state.controls.push({ resolve, reject });
+          state.controls.push({ resolve, reject, row: (value) => { this.emit("row", value); }, info: (message) => { this.emit("info", { message }); } });
           state.queryStarted?.();
         });
       } else state.queryStarted?.();
@@ -273,6 +276,23 @@ const count = (event: string) =>
   state.events.filter((value) => value === event).length;
 
 describe("pooled read-only semantic SQL transport", () => {
+  it("initializes the actual tedious session with ARITHABORT ON without a per-query setup round trip", async () => {
+    await executeCompiledQuery(settings, compiled);
+    const config = state.configs[0] as { options: { enableArithAbort: boolean } };
+    expect(config.options.enableArithAbort).toBe(true);
+    const require = createRequire(import.meta.url);
+    const tedious = createRequire(require.resolve("mssql"))("tedious") as {
+      Connection: new (config: unknown) => { getInitialSql(): string };
+    };
+    // Constructing the installed pure-JS driver does not open a socket.
+    const connection = new tedious.Connection({
+      server: settings.server,
+      authentication: { type: "default", options: { userName: settings.user, password: settings.password } },
+      options: config.options,
+    });
+    expect(connection.getInitialSql()).toMatch(/^set arithabort on$/im);
+    expect(state.sqlTexts).toEqual([compiled.sql]);
+  });
   it("enables SQL timings before the parameterized main RPC and resets them after its final info messages", async () => {
     state.infoMessages = [
       "SQL Server parse and compile time:\r\n CPU time = 31 ms, elapsed time = 978 ms.",
@@ -376,7 +396,8 @@ describe("pooled read-only semantic SQL transport", () => {
     expect(count("select")).toBe(2);
     expect(count("release")).toBe(2);
     expect(count("pool:close")).toBe(0);
-    expect(state.timeout).toBe(30_000);
+    expect(state.timeout).toBeGreaterThan(29_000);
+    expect(state.timeout).toBeLessThanOrEqual(30_000);
     expect(state.inputs[0]).toEqual({
       name: "__df_limit",
       type: "Int",
@@ -390,8 +411,8 @@ describe("pooled read-only semantic SQL transport", () => {
     expect(state.inputs[4].value).toEqual(new Date("2024-01-01"));
     expect(state.configs[0]).toMatchObject({
       validateConnection: "socket",
-      pool: { max: 4, min: 0 },
-      options: { cancelTimeout: 5000 },
+      pool: { max: 2, min: 0 },
+      options: { cancelTimeout: 5000, enableArithAbort: true },
     });
   });
   it("invalidates a pool when actual SQL credentials or target change", async () => {
@@ -485,6 +506,139 @@ describe("pooled read-only semantic SQL transport", () => {
     );
     expect(count("discard")).toBe(1);
     expect(count("socketDestroy")).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("publishes actual in-flight timings synchronously on abort before waiting for cancellation acknowledgement", async () => {
+    vi.useFakeTimers();
+    state.wait = true;
+    state.cancelAck = false;
+    const ready = started();
+    const controller = new AbortController();
+    const observe = vi.fn();
+    const operation = executeCompiledQuery(settings, compiled, controller.signal, observe);
+    const rejection = expect(operation).rejects.toBeInstanceOf(QueryAbortedError);
+    await ready;
+    await vi.advanceTimersByTimeAsync(1_234);
+    controller.abort();
+    // The scheduler's rejection microtask has not run yet; cleanup still owns the lease.
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(observe.mock.calls[0][0]).toEqual({
+      poolAcquireMs: 0, connectMs: 0, sendToFirstRowMs: 1_234, fetchMs: 0,
+    });
+    expect(observe.mock.calls[0][0]).not.toHaveProperty("sqlExecuteMs");
+    expect(count("release")).toBe(0);
+    expect(count("discard")).toBe(0);
+    await vi.advanceTimersByTimeAsync(QUERY_CANCEL_GRACE_MS);
+    await rejection;
+    expect(observe).toHaveBeenCalledTimes(2);
+    expect(count("discard")).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("publishes login time before abort cleanup settles rather than reporting an unopened query as send time", async () => {
+    vi.useFakeTimers();
+    state.waitConnect = true;
+    const ready = started("connectStarted");
+    const controller = new AbortController();
+    const observe = vi.fn();
+    const operation = executeCompiledQuery(settings, compiled, controller.signal, observe);
+    const rejection = expect(operation).rejects.toBeInstanceOf(QueryAbortedError);
+    await ready;
+    await vi.advanceTimersByTimeAsync(321);
+    controller.abort();
+    expect(observe.mock.calls[0][0]).toEqual({
+      poolAcquireMs: 0, connectMs: 321, sendToFirstRowMs: 0, fetchMs: 0,
+    });
+    await rejection;
+    state.resumeConnect?.();
+    state.waitConnect = false;
+    await executeCompiledQuery(settings, compiled);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("keeps first-row, fetch and actually received SQL statistics distinct in its cancellation snapshot", async () => {
+    vi.useFakeTimers();
+    state.wait = true;
+    state.cancelAck = false;
+    const ready = started();
+    const controller = new AbortController();
+    const observe = vi.fn();
+    const operation = executeCompiledQuery(settings, { ...compiled, diagnostics: true }, controller.signal, observe);
+    const rejection = expect(operation).rejects.toBeInstanceOf(QueryAbortedError);
+    await ready;
+    await vi.advanceTimersByTimeAsync(500);
+    state.controls[0].row({ total: 9 });
+    state.controls[0].info("SQL Server Execution Times:\n CPU time = 3 ms, elapsed time = 7 ms.");
+    await vi.advanceTimersByTimeAsync(200);
+    controller.abort();
+    expect(observe.mock.calls[0][0]).toEqual({
+      poolAcquireMs: 0, connectMs: 0, sendToFirstRowMs: 500, fetchMs: 200,
+      sqlExecuteMs: 7, sqlExecuteCpuMs: 3,
+    });
+    expect(observe.mock.calls[0][0]).not.toHaveProperty("sqlCompileMs");
+    await vi.advanceTimersByTimeAsync(QUERY_CANCEL_GRACE_MS);
+    await rejection;
+    expect(count("discard")).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("spends one remaining budget across transport queueing and execution instead of restarting it after checkout", async () => {
+    vi.useFakeTimers();
+    state.wait = true;
+    let readyCount = 0;
+    const ready = new Promise<void>((resolve) => {
+      state.queryStarted = () => { if (++readyCount === 2) resolve(); };
+    });
+    const controller = new AbortController();
+    const first = executeCompiledQuery(settings, compiled);
+    const second = executeCompiledQuery(settings, compiled, controller.signal);
+    const secondRejection = expect(second).rejects.toBeInstanceOf(QueryAbortedError);
+    await ready;
+    const queued = executeCompiledQuery(settings, compiled, undefined, undefined, { timeoutMs: 1_000 });
+    const rejection = expect(queued).rejects.toBeInstanceOf(QueryTimeoutError);
+    await vi.advanceTimersByTimeAsync(400);
+    state.controls[0].resolve();
+    await first;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(count("select")).toBe(3);
+    expect(state.timeout).toBe(600);
+    await vi.advanceTimersByTimeAsync(599);
+    expect(count("cancel")).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejection;
+    expect(count("cancel")).toBe(1);
+    expect(count("discard")).toBe(1);
+    controller.abort();
+    await secondRejection;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("times out a pending login within the remaining budget without sending SQL or closing a shared login", async () => {
+    vi.useFakeTimers();
+    state.waitConnect = true;
+    const ready = started("connectStarted");
+    const operation = executeCompiledQuery(settings, compiled, undefined, undefined, { timeoutMs: 500 });
+    const rejection = expect(operation).rejects.toBeInstanceOf(QueryTimeoutError);
+    await ready;
+    await vi.advanceTimersByTimeAsync(500);
+    await rejection;
+    expect(count("select")).toBe(0);
+    expect(count("pool:close")).toBe(0);
+    state.resumeConnect?.();
+    state.waitConnect = false;
+    await executeCompiledQuery(settings, compiled);
+    expect(count("connect")).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("returns a lease arriving after its checkout deadline without executing or leaking it", async () => {
+    vi.useFakeTimers();
+    state.waitAcquire = true;
+    const ready = started("acquireStarted");
+    const operation = executeCompiledQuery(settings, compiled, undefined, undefined, { timeoutMs: 500 });
+    const rejection = expect(operation).rejects.toBeInstanceOf(QueryTimeoutError);
+    await ready;
+    await vi.advanceTimersByTimeAsync(500);
+    await rejection;
+    expect(count("select")).toBe(0);
+    state.resumeAcquire?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(count("release")).toBe(1);
     expect(vi.getTimerCount()).toBe(0);
   });
   it("explicitly cancels/discards a driver-side ETIMEOUT and never returns a timed-out lease as healthy", async () => {
@@ -604,16 +758,16 @@ describe("pooled read-only semantic SQL transport", () => {
     let readyCount = 0;
     const ready = new Promise<void>((resolve) => {
       state.queryStarted = () => {
-        if (++readyCount === 4) resolve();
+        if (++readyCount === 2) resolve();
       };
     });
-    const controllers = Array.from({ length: 21 }, () => new AbortController());
+    const controllers = Array.from({ length: 19 }, () => new AbortController());
     const operations = controllers.map((controller) =>
       executeCompiledQuery(settings, compiled, controller.signal),
     );
     const results = Promise.allSettled(operations);
     await ready;
-    expect(count("select")).toBe(4);
+    expect(count("select")).toBe(2);
     controllers.forEach((controller) => controller.abort());
     const statuses = await results;
     expect(
@@ -623,8 +777,8 @@ describe("pooled read-only semantic SQL transport", () => {
           (value.reason as { status?: number }).status === 503,
       ),
     ).toHaveLength(1);
-    expect(count("select")).toBe(4);
-    expect(count("cancel")).toBe(4);
+    expect(count("select")).toBe(2);
+    expect(count("cancel")).toBe(2);
   });
   it("bounds pool queue waiting to 30 seconds and reports the failed wait timing", async () => {
     vi.useFakeTimers();
@@ -633,10 +787,10 @@ describe("pooled read-only semantic SQL transport", () => {
     let readyCount = 0;
     const ready = new Promise<void>((resolve) => {
       state.queryStarted = () => {
-        if (++readyCount === 4) resolve();
+        if (++readyCount === 2) resolve();
       };
     });
-    const active = Array.from({ length: 4 }, () =>
+    const active = Array.from({ length: 2 }, () =>
       executeCompiledQuery(settings, compiled),
     );
     const completed = Promise.allSettled(active);
@@ -657,7 +811,7 @@ describe("pooled read-only semantic SQL transport", () => {
       sendToFirstRowMs: 0,
       fetchMs: 0,
     });
-    expect(count("select")).toBe(4);
+    expect(count("select")).toBe(2);
     expect(vi.getTimerCount()).toBe(0);
   });
   it("drains active work and rejects queued requests during explicit shutdown", async () => {
