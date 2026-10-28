@@ -9,6 +9,8 @@ import {
   type ProjectModelContext,
 } from "@/lib/server/model-http";
 import { runSemanticQuery } from "@/lib/server/semantic-query";
+import { semanticQuerySchema } from "@/lib/semantic/query/schema";
+import { resultToCsv } from "@/lib/explore/csv";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,12 +40,28 @@ export async function POST(
     } finally {
       addQueryPhase(timing, "parseMs", parseStart);
     }
-    return Response.json(
-      await runSemanticQuery(id, body, request.signal, timing),
-      {
-        headers: { "Cache-Control": "no-store" },
+    const csv = request.headers.get("accept")?.split(",").some((value) =>
+      /^text\/csv(?:\s*;|\s*$)/i.test(value.trim()) && !/;\s*q=0(?:\.0*)?(?:\s*;|\s*$)/i.test(value),
+    ) ?? false;
+    if (csv) {
+      // Validate before raising the export limit; exports use the same trusted compiler and driver.
+      const validated = semanticQuerySchema.safeParse(body);
+      if (!validated.success)
+        throw new HttpError(400, "Provide a valid semantic query to export (at most 50,000 rows).");
+      body = { ...validated.data, limit: 50_000 };
+    }
+    const result = await runSemanticQuery(id, body, request.signal, timing);
+    if (csv) return new Response(resultToCsv(result), {
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="dataforge-explore.csv"',
+        "X-Content-Type-Options": "nosniff",
+        "X-DataForge-Truncated": String(result.truncated || result.rows.length > 50_000),
+        "X-DataForge-Row-Count": String(Math.min(result.rows.length, 50_000)),
       },
-    );
+    });
+    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return queryErrorResponse(
       error,

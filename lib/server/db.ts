@@ -150,6 +150,16 @@ export function getDatabase(): DatabaseSync {
         revision INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS explore_views (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        config TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS explore_views_project_updated
+        ON explore_views(project_id, updated_at DESC, id);
     `);
     // Serialize additive migrations across development workers opening the same file.
     database.exec("BEGIN IMMEDIATE");

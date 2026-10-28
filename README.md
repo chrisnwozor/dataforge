@@ -139,7 +139,7 @@ Storage contracts are in `lib/server/projects.ts`, profiler contracts in `lib/pr
 
 ## Later phases
 
-Upload, Profile, Model, Measures, Generate, Settings, and Runs now use real application state. Legacy fixtures remain isolated in `lib/data/mock.ts`; active run/history adapters do not use them. The landing illustration remains an illustration.
+Upload, Profile, Model, Measures, Explore, Generate, Settings, and Runs now use real application state. Legacy fixtures remain isolated in `lib/data/mock.ts`; active run/history adapters do not use them. The landing illustration remains an illustration.
 
 Future integration points:
 
@@ -364,3 +364,31 @@ The generated row limit binds `@__df_limit` as SQL `INT`. Preserve the displayed
 The opt-in SQL Server integration test compares cumulative Category measures and complete Year, Month, Year/Month, and Product/Category results with independent Superstore arithmetic. Local generated-SQL result tests snapshot these numeric results. It also checks diagnostics cache bypass, reported SQL execution timing, Unknown members, and connection reuse. Warm, live, uncached acceptance budgets are 500 ms for Sales by Year, Sales YoY % by Year, and Sales % of Total by Year; one second for five measures by Product/Category and Sales YoY % by Year/Month. The Year-total fixture explicitly removes the Year context with `ALL(dim_date[Year])`.
 
 These live limits remain **pending until tested against a configured SQL Server**; local SQLite result tests and compiler benchmarks do not establish SQL Server latency. Run the existing opt-in test after setting `DATAFORGE_SQL_INTEGRATION=1` and the documented connection/staging variables. Copy the entire materialized batch into SSMS for its actual execution plan: `SHOWPLAN_XML` without execution cannot create the temporary tables required by later statements.
+
+## Explore: pivot tables and charts
+
+Open **Explore** after **Measures** at `/projects/<id>/explore`. It uses the existing semantic model and requires a configured SQL connection and a successful load into that database. Without them, Explore displays setup guidance. No connection is needed to run its automated checks.
+
+The first view selects the first additive measure and dimension attribute. Search the field list, expand a hierarchy, and click or press Enter to add a field. Drag fields onto Rows, Columns, Values, or Filters; keyboard dragging uses Space and the arrow keys. Shelves also provide remove and move controls. Choose Table, Pivot, Bar, Line, Area, Donut, or KPI cards. Bar formatting supports horizontal/vertical and clustered/stacked series. Charts use small handwritten SVG components and include keyboard-focusable marks, a text summary, and a data-table fallback. To bound SVG work, charts display at most 200 categories (50 for Donut) and 12 series, with an explicit note. The fallback retains all result rows with windowing and pages of eight series.
+
+Use Filters for counted multi-select slicers, numeric/date ranges, and Top N by measure. The first few distinct-value lists are prefetched. Lists contain up to 1,000 values; search applies to the returned list and a truncation note explains when a range is preferable. Clicking a result member opens drill-down or drill-through actions. Hierarchy breadcrumbs and Drill up restore the previous context.
+
+Pivot results are reshaped on the client and limited to 50 column members. Row, column, and grand totals are separate requests to the same query API, retaining the measure's aggregation context. Ratios, averages, and distinct counts are never summed in the browser. Totals ignore a display Top N and represent the full filtered context; unavailable or truncated totals display an em dash. Large table and pivot rows use fixed-height windowing with overscan rather than mounting 50,000 DOM rows.
+
+Changes debounce for 250 ms and abort the previous request. A pending query keeps the preceding result dimmed; slow queries show an elapsed counter and Cancel. The formatting panel controls title, number format, sorting, Top N, totals, legends, and series colors. Measure formats come from the semantic model, NULL/empty values show an em dash, and integer year attributes render as `2022`. The SQL panel retains generated SQL, bound parameter metadata, elapsed time, cache status, and phase timings, including on query errors. Phases over two seconds are flagged.
+
+Save a named view, save a copy, rename, delete, or reopen it from the view menu. SQLite stores version-1, Zod-validated configurations in `explore_views(id, project_id, name, config, created_at, updated_at)`; deleting a project cascades to its views. `?view=<id>` opens a saved view. Share links can also contain a compact UTF-8/base64url configuration. Encoded links are readable, not encrypted: avoid including sensitive filter values in a shared URL. Views and chart images never contain connection passwords.
+
+CSV export sends the current semantic query to **the same** `POST /api/projects/<id>/query` endpoint with `Accept: text/csv`. The server validates it, applies the 50,000-row cap (and selected Top N), and returns UTF-8 BOM/RFC 4180 CSV. Spreadsheet formula-like strings are escaped. `X-DataForge-Truncated` and `X-DataForge-Row-Count` report export limits; the UI warns when truncated. SVG and PNG exports use the rendered chart. No endpoint accepts client SQL, and Explore adds no SQL execution path.
+
+Saved-view APIs are project-scoped and work independently of SQL connection readiness:
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /api/projects/<id>/explore/views` | Returns `{ views }`. |
+| `POST /api/projects/<id>/explore/views` | Saves `{ name, config }` and returns the new view. |
+| `GET /api/projects/<id>/explore/views/<viewId>` | Returns the saved view. |
+| `PUT /api/projects/<id>/explore/views/<viewId>` | Updates `{ name?, config? }`. |
+| `DELETE /api/projects/<id>/explore/views/<viewId>` | Deletes the view. |
+
+Explore tests cover configuration/version validation, reducer changes, URL round-trips, drill transitions, pivot reshaping and server totals, year/number formatting, scale/tick helpers, window calculations, CSV formatting/caps, saved-view persistence, and request cancellation with driver/fetch doubles. Browser verification uses explicit semantic/query response fixtures and real SQLite view CRUD. SQL Server checks remain for local execution; browser fixtures do not establish live query results or latency.
