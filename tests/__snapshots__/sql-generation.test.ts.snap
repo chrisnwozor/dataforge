@@ -446,7 +446,7 @@ BEGIN TRY
   IF OBJECT_ID(N'[dw].[fact_sales]', N'U') IS NULL
   BEGIN
     CREATE TABLE [dw].[fact_sales] (
-    [fact_sales_key] INT IDENTITY(1, 1) NOT NULL CONSTRAINT [pk_fact_sales] PRIMARY KEY,
+    [fact_sales_key] INT IDENTITY(1, 1) NOT NULL CONSTRAINT [pk_fact_sales] PRIMARY KEY NONCLUSTERED,
     [date_key] INT NOT NULL DEFAULT (-1),
     [customer_key] INT NOT NULL DEFAULT (-1),
     [product_key] INT NOT NULL DEFAULT (-1),
@@ -461,23 +461,15 @@ BEGIN TRY
 
   IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'fk_fact_sales_date_key')
     ALTER TABLE [dw].[fact_sales] WITH CHECK ADD CONSTRAINT [fk_fact_sales_date_key] FOREIGN KEY ([date_key]) REFERENCES [dw].[dim_date] ([DateKey]);
-  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_date_key')
-    CREATE NONCLUSTERED INDEX [ix_fact_sales_date_key] ON [dw].[fact_sales] ([date_key]);
 
   IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'fk_fact_sales_customer_key')
     ALTER TABLE [dw].[fact_sales] WITH CHECK ADD CONSTRAINT [fk_fact_sales_customer_key] FOREIGN KEY ([customer_key]) REFERENCES [dw].[dim_customer] ([customer_key]);
-  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_customer_key')
-    CREATE NONCLUSTERED INDEX [ix_fact_sales_customer_key] ON [dw].[fact_sales] ([customer_key]);
 
   IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'fk_fact_sales_product_key')
     ALTER TABLE [dw].[fact_sales] WITH CHECK ADD CONSTRAINT [fk_fact_sales_product_key] FOREIGN KEY ([product_key]) REFERENCES [dw].[dim_product] ([product_key]);
-  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_product_key')
-    CREATE NONCLUSTERED INDEX [ix_fact_sales_product_key] ON [dw].[fact_sales] ([product_key]);
 
   IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'fk_fact_sales_region_key')
     ALTER TABLE [dw].[fact_sales] WITH CHECK ADD CONSTRAINT [fk_fact_sales_region_key] FOREIGN KEY ([region_key]) REFERENCES [dw].[dim_region] ([region_key]);
-  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_region_key')
-    CREATE NONCLUSTERED INDEX [ix_fact_sales_region_key] ON [dw].[fact_sales] ([region_key]);
 
   -- Full refresh replaces the fact, while descriptive dimension members remain available.
 
@@ -532,6 +524,27 @@ BEGIN TRY
 
   DROP TABLE [#DF_Candidates];
   DROP TABLE [#DF_Source];
+
+  -- Columnstore keeps the identity key unique in a nonclustered primary key.
+  IF EXISTS (SELECT 1 FROM [sys].[key_constraints] AS [pk] INNER JOIN [sys].[indexes] AS [i] ON [i].[object_id] = [pk].[parent_object_id] AND [i].[index_id] = [pk].[unique_index_id] WHERE [pk].[parent_object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [pk].[name] = N'pk_fact_sales' AND [pk].[type] = N'PK' AND [i].[type] = 1)
+  BEGIN
+    IF EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [referenced_object_id] = OBJECT_ID(N'[dw].[fact_sales]'))
+      THROW 51010, N'Changing the fact primary key requires removing external incoming foreign keys first.', 1;
+    ALTER TABLE [dw].[fact_sales] DROP CONSTRAINT [pk_fact_sales];
+    ALTER TABLE [dw].[fact_sales] ADD CONSTRAINT [pk_fact_sales] PRIMARY KEY NONCLUSTERED ([fact_sales_key]);
+  END;
+  IF EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [type] = 1)
+    THROW 51011, N'Columnstore cannot replace an external clustered index. Remove that index or turn Columnstore off.', 1;
+  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [type] = 5)
+    CREATE CLUSTERED COLUMNSTORE INDEX [cci_fact_sales] ON [dw].[fact_sales];
+  IF EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_date_key' AND [type] = 2 AND [is_primary_key] = 0 AND [is_unique_constraint] = 0)
+    DROP INDEX [ix_fact_sales_date_key] ON [dw].[fact_sales];
+  IF EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_customer_key' AND [type] = 2 AND [is_primary_key] = 0 AND [is_unique_constraint] = 0)
+    DROP INDEX [ix_fact_sales_customer_key] ON [dw].[fact_sales];
+  IF EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_product_key' AND [type] = 2 AND [is_primary_key] = 0 AND [is_unique_constraint] = 0)
+    DROP INDEX [ix_fact_sales_product_key] ON [dw].[fact_sales];
+  IF EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(N'[dw].[fact_sales]') AND [name] = N'ix_fact_sales_region_key' AND [type] = 2 AND [is_primary_key] = 0 AND [is_unique_constraint] = 0)
+    DROP INDEX [ix_fact_sales_region_key] ON [dw].[fact_sales];
   INSERT INTO [etl].[run_log] ([run_id], [step], [started_at], [finished_at], [rows_in], [rows_out], [rows_rejected], [status], [message])
   VALUES (@RunId, N'04_fact', @StartedAt, SYSUTCDATETIME(), @RowsIn, @RowsOut, @RowsRejected, N'Succeeded', N'Completed.');
   COMMIT TRANSACTION;
@@ -657,9 +670,10 @@ exports[`transactsql parser coverage > syntax-checks supported emitted statement
   },
   {
     "file": "04_fact.sql",
-    "parsed": 9,
+    "parsed": 5,
     "skipped": [
       "FOR JSON PATH",
+      "columnstore index DDL",
       "named inline primary-key constraint",
     ],
   },

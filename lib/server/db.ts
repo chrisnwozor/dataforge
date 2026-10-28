@@ -123,6 +123,33 @@ export function getDatabase(): DatabaseSync {
         raw_json TEXT NOT NULL,
         PRIMARY KEY (run_id, ordinal)
       );
+      CREATE TABLE IF NOT EXISTS semantic_measures (
+        id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        expression TEXT NOT NULL,
+        format TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        description TEXT NOT NULL,
+        is_auto INTEGER NOT NULL CHECK (is_auto IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS semantic_hierarchies (
+        id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        "table" TEXT NOT NULL,
+        levels TEXT NOT NULL,
+        is_auto INTEGER NOT NULL DEFAULT 0 CHECK (is_auto IN (0, 1)),
+        PRIMARY KEY (project_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS semantic_state (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL
+      );
     `);
     // Serialize additive migrations across development workers opening the same file.
     database.exec("BEGIN IMMEDIATE");
@@ -171,6 +198,16 @@ export function getDatabase(): DatabaseSync {
       );
       if (!runColumns.has("owner_pid"))
         database.exec("ALTER TABLE runs ADD COLUMN owner_pid INTEGER");
+      const hierarchyColumns = new Set(
+        database
+          .prepare("PRAGMA table_info(semantic_hierarchies)")
+          .all()
+          .map((row) => row.name),
+      );
+      if (!hierarchyColumns.has("is_auto"))
+        database.exec(
+          "ALTER TABLE semantic_hierarchies ADD COLUMN is_auto INTEGER NOT NULL DEFAULT 0 CHECK (is_auto IN (0, 1))",
+        );
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");

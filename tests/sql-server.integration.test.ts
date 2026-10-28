@@ -14,6 +14,11 @@ import {
 } from "@/lib/server/connection";
 import { getRun } from "@/lib/server/runs";
 import type { CreateProjectResponse } from "@/lib/server/uploads";
+import { getSemanticModel } from "@/lib/server/semantic";
+import { runSemanticQuery } from "@/lib/server/semantic-query";
+import { invalidateSemanticCache } from "@/lib/semantic/query/cache";
+import { quoteIdentifier } from "@/lib/sql/helpers";
+import type { SemanticColumn, SemanticTable } from "@/lib/semantic/types";
 
 /** Opt-in only: these scripts create/modify objects in the supplied disposable database. */
 it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
@@ -128,6 +133,166 @@ it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
         }[][];
         expect(Number(records[0][0].facts)).toBe(2000);
         expect(Number(records[1][0].rejects)).toBe(0);
+
+        // Use production semantic derivation/compiler/transport, not SQL supplied through an API.
+        const semantic = await getSemanticModel(project.id);
+        const measure = (name: string) => {
+          const found = semantic.measures.find((value) => value.name === name);
+          if (!found) throw new Error(`Missing sample measure: ${name}`);
+          return found;
+        };
+        const column = (name: string): [SemanticTable, SemanticColumn] => {
+          for (const table of semantic.tables) {
+            const found = table.columns.find((value) => value.name === name);
+            if (found) return [table, found];
+          }
+          throw new Error(`Missing sample attribute: ${name}`);
+        };
+        const qualified = (table: SemanticTable) =>
+          `${quoteIdentifier(table.schema)}.${quoteIdentifier(table.sqlName)}`;
+        const fact = semantic.tables.find(
+          (table) => table.id === semantic.factTableId,
+        )!;
+        const salesColumn = fact.columns.find(
+          (value) => value.name === "Sales",
+        )!;
+        const ref = ([table, value]: [SemanticTable, SemanticColumn]) => ({
+          table: table.id,
+          column: value.id,
+        });
+        const join = (table: SemanticTable, alias: string) => {
+          const relationship = semantic.relationships.find(
+            (value) => value.toTableId === table.id,
+          )!;
+          const foreign = fact.columns.find(
+            (value) => value.id === relationship.fromColumnId,
+          )!;
+          const key = table.columns.find(
+            (value) => value.id === relationship.toColumnId,
+          )!;
+          return `JOIN ${qualified(table)} AS ${quoteIdentifier(alias)} ON [f].${quoteIdentifier(foreign.sqlName)} = ${quoteIdentifier(alias)}.${quoteIdentifier(key.sqlName)}`;
+        };
+        const category = column("Category");
+        const byCategory = await runSemanticQuery(project.id, {
+          measures: [measure("Sales").id],
+          rows: [ref(category)],
+          hideUnknown: true,
+        });
+        const expectedCategory = await pool.request().query<{
+          category: string;
+          sales: number;
+        }>(`
+          SELECT [p].${quoteIdentifier(category[1].sqlName)} AS [category], SUM([f].${quoteIdentifier(salesColumn.sqlName)}) AS [sales]
+          FROM ${qualified(fact)} AS [f] ${join(category[0], "p")}
+          GROUP BY [p].${quoteIdentifier(category[1].sqlName)};
+        `);
+        const categoryKey = byCategory.columns.find(
+          (value) => value.role === "attribute",
+        )!.key;
+        const salesKey = byCategory.columns.find(
+          (value) => value.role === "measure",
+        )!.key;
+        const totals = new Map(
+          expectedCategory.recordset.map((value) => [
+            value.category,
+            Number(value.sales),
+          ]),
+        );
+        expect(byCategory.rows).toHaveLength(totals.size);
+        for (const row of byCategory.rows)
+          expect(Number(row[salesKey])).toBeCloseTo(
+            totals.get(String(row[categoryKey]))!,
+            4,
+          );
+        const cached = await runSemanticQuery(project.id, {
+          measures: [measure("Sales").id],
+          rows: [ref(category)],
+          hideUnknown: true,
+        });
+        expect(cached.fromCache).toBe(true);
+
+        const year = column("Year");
+        const date = column("Date");
+        const yoy = await runSemanticQuery(project.id, {
+          measures: [measure("Sales YoY %").id],
+          rows: [ref(year)],
+        });
+        const baseline = await pool.request().query<{
+          year: number;
+          yoy: number | null;
+        }>(`
+          WITH [periods] AS (
+            SELECT [d].${quoteIdentifier(year[1].sqlName)} AS [year], MIN([d].${quoteIdentifier(date[1].sqlName)}) AS [first_date], MAX([d].${quoteIdentifier(date[1].sqlName)}) AS [last_date], SUM([f].${quoteIdentifier(salesColumn.sqlName)}) AS [sales]
+            FROM ${qualified(fact)} AS [f] ${join(date[0], "d")}
+            GROUP BY [d].${quoteIdentifier(year[1].sqlName)}
+          )
+          SELECT [p].[year], ([p].[sales] - [prior].[sales]) / NULLIF([prior].[sales], 0) AS [yoy]
+          FROM [periods] AS [p] OUTER APPLY (
+            SELECT SUM([f].${quoteIdentifier(salesColumn.sqlName)}) AS [sales]
+            FROM ${qualified(fact)} AS [f] ${join(date[0], "d")}
+            WHERE [d].${quoteIdentifier(date[1].sqlName)} BETWEEN DATEADD(YEAR, -1, [p].[first_date]) AND DATEADD(YEAR, -1, [p].[last_date])
+          ) AS [prior];
+        `);
+        const yearKey = yoy.columns.find(
+          (value) => value.role === "attribute",
+        )!.key;
+        const yoyKey = yoy.columns.find(
+          (value) => value.role === "measure",
+        )!.key;
+        for (const row of yoy.rows) {
+          const expected = baseline.recordset.find(
+            (value) => Number(value.year) === Number(row[yearKey]),
+          )!.yoy;
+          if (expected === null) expect(row[yoyKey]).toBeNull();
+          else expect(Number(row[yoyKey])).toBeCloseTo(Number(expected), 5);
+        }
+
+        // A committed temporary Unknown fact exercises the option through separate pinned sessions.
+        const factKey = fact.columns.find(
+          (value) => value.id === fact.keyColumnId,
+        )!;
+        const inserted = await pool
+          .request()
+          .input("sales", sql.Decimal(18, 2), 5).query<{ id: number }>(`
+          INSERT INTO ${qualified(fact)} (${quoteIdentifier(salesColumn.sqlName)}) OUTPUT INSERTED.${quoteIdentifier(factKey.sqlName)} AS [id] VALUES (@sales);
+        `);
+        try {
+          invalidateSemanticCache(project.id);
+          const region = column("Region");
+          const visible = await runSemanticQuery(project.id, {
+            measures: [measure("Row Count").id],
+            rows: [ref(region)],
+            hideUnknown: false,
+          });
+          const hidden = await runSemanticQuery(project.id, {
+            measures: [measure("Row Count").id],
+            rows: [ref(region)],
+            hideUnknown: true,
+          });
+          const countKey = visible.columns.find(
+            (value) => value.role === "measure",
+          )!.key;
+          const sum = (rows: typeof visible.rows) =>
+            rows.reduce((total, row) => total + Number(row[countKey]), 0);
+          expect(sum(visible.rows)).toBe(2001);
+          expect(sum(hidden.rows)).toBe(2000);
+        } finally {
+          await pool
+            .request()
+            .input("id", sql.Int, inserted.recordset[0].id)
+            .query(
+              `DELETE FROM ${qualified(fact)} WHERE ${quoteIdentifier(factKey.sqlName)} = @id;`,
+            );
+          invalidateSemanticCache(project.id);
+        }
+
+        const threeDimensions = await runSemanticQuery(project.id, {
+          measures: [measure("Sales").id],
+          rows: [ref(category), ref(column("Segment")), ref(column("Region"))],
+        });
+        expect(threeDimensions.rowCount).toBeGreaterThan(0);
+        expect(threeDimensions.fromCache).toBe(false);
+        expect(threeDimensions.elapsedMs).toBeLessThan(2_000);
       } finally {
         await pool.close();
       }

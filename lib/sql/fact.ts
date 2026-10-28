@@ -34,6 +34,11 @@ export function factFile(context: SqlContext): GeneratedFile {
   );
   const usedObjects = new Set<string>();
   const primaryKey = uniqueIdentifier(`pk_${context.factTable}`, usedObjects);
+  const columnstore = context.input.model.columnstore !== false;
+  const columnstoreIndex = uniqueIdentifier(
+    `cci_${context.factTable}`,
+    usedObjects,
+  );
   const factColumns = [
     ...context.foreignKeys.map((key) => key.name),
     ...context.degenerates.map((column) => column.name),
@@ -43,7 +48,7 @@ export function factFile(context: SqlContext): GeneratedFile {
     throw new Error("Assign source columns to the fact before generating SQL.");
 
   const definitions = [
-    `    ${quoteIdentifier(context.factKey)} INT IDENTITY(1, 1) NOT NULL CONSTRAINT ${quoteIdentifier(primaryKey)} PRIMARY KEY`,
+    `    ${quoteIdentifier(context.factKey)} INT IDENTITY(1, 1) NOT NULL CONSTRAINT ${quoteIdentifier(primaryKey)} PRIMARY KEY ${columnstore ? "NONCLUSTERED" : "CLUSTERED"}`,
     ...context.foreignKeys.map(
       (key) => `    ${quoteIdentifier(key.name)} INT NOT NULL DEFAULT (-1)`,
     ),
@@ -57,6 +62,7 @@ export function factFile(context: SqlContext): GeneratedFile {
     ),
   ];
   const create = `  IF OBJECT_ID(${sqlLiteral(fact)}, N'U') IS NULL\n  BEGIN\n    CREATE TABLE ${fact} (\n${definitions.join(",\n")}\n    );\n  END;`;
+  const foreignKeyIndexes: { name: string; column: string }[] = [];
   const constraints = context.foreignKeys.map((key) => {
     const name = uniqueIdentifier(
       `fk_${context.factTable}_${key.name}`,
@@ -66,8 +72,18 @@ export function factFile(context: SqlContext): GeneratedFile {
       `ix_${context.factTable}_${key.name}`,
       usedObjects,
     );
-    return `  IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [name] = ${sqlLiteral(name)})\n    ALTER TABLE ${fact} WITH CHECK ADD CONSTRAINT ${quoteIdentifier(name)} FOREIGN KEY (${quoteIdentifier(key.name)}) REFERENCES ${qualified("dw", key.dimension.table)} (${quoteIdentifier(key.dimension.key)});\n  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [name] = ${sqlLiteral(index)})\n    CREATE NONCLUSTERED INDEX ${quoteIdentifier(index)} ON ${fact} (${quoteIdentifier(key.name)});`;
+    foreignKeyIndexes.push({ name: index, column: key.name });
+    return `  IF NOT EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [parent_object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [name] = ${sqlLiteral(name)})\n    ALTER TABLE ${fact} WITH CHECK ADD CONSTRAINT ${quoteIdentifier(name)} FOREIGN KEY (${quoteIdentifier(key.name)}) REFERENCES ${qualified("dw", key.dimension.table)} (${quoteIdentifier(key.dimension.key)});`;
   });
+  // Upgrade only objects created by this generator. External indexes/constraints
+  // are preserved; an incompatible clustered index produces an actionable error.
+  const primaryKeyType = (type: number) =>
+    `EXISTS (SELECT 1 FROM [sys].[key_constraints] AS [pk] INNER JOIN [sys].[indexes] AS [i] ON [i].[object_id] = [pk].[parent_object_id] AND [i].[index_id] = [pk].[unique_index_id] WHERE [pk].[parent_object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [pk].[name] = ${sqlLiteral(primaryKey)} AND [pk].[type] = N'PK' AND [i].[type] = ${type})`;
+  const changePrimaryKey = (target: "CLUSTERED" | "NONCLUSTERED") =>
+    `    IF EXISTS (SELECT 1 FROM [sys].[foreign_keys] WHERE [referenced_object_id] = OBJECT_ID(${sqlLiteral(fact)}))\n      THROW 51010, N'Changing the fact primary key requires removing external incoming foreign keys first.', 1;\n    ALTER TABLE ${fact} DROP CONSTRAINT ${quoteIdentifier(primaryKey)};\n    ALTER TABLE ${fact} ADD CONSTRAINT ${quoteIdentifier(primaryKey)} PRIMARY KEY ${target} (${quoteIdentifier(context.factKey)});`;
+  const indexes = columnstore
+    ? `  -- Columnstore keeps the identity key unique in a nonclustered primary key.\n  IF ${primaryKeyType(1)}\n  BEGIN\n${changePrimaryKey("NONCLUSTERED")}\n  END;\n  IF EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [type] = 1)\n    THROW 51011, N'Columnstore cannot replace an external clustered index. Remove that index or turn Columnstore off.', 1;\n  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [type] = 5)\n    CREATE CLUSTERED COLUMNSTORE INDEX ${quoteIdentifier(columnstoreIndex)} ON ${fact};\n${foreignKeyIndexes.map((index) => `  IF EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [name] = ${sqlLiteral(index.name)} AND [type] = 2 AND [is_primary_key] = 0 AND [is_unique_constraint] = 0)\n    DROP INDEX ${quoteIdentifier(index.name)} ON ${fact};`).join("\n")}`
+    : `  -- Rowstore mode restores the generated clustered key and FK lookup indexes.\n  IF EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [name] = ${sqlLiteral(columnstoreIndex)} AND [type] = 5)\n    DROP INDEX ${quoteIdentifier(columnstoreIndex)} ON ${fact};\n  IF ${primaryKeyType(2)} AND NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [type] IN (1, 5))\n  BEGIN\n${changePrimaryKey("CLUSTERED")}\n  END;\n${foreignKeyIndexes.map((index) => `  IF NOT EXISTS (SELECT 1 FROM [sys].[indexes] WHERE [object_id] = OBJECT_ID(${sqlLiteral(fact)}) AND [name] = ${sqlLiteral(index.name)})\n    CREATE NONCLUSTERED INDEX ${quoteIdentifier(index.name)} ON ${fact} (${quoteIdentifier(index.column)});`).join("\n")}`;
 
   const calendarKey = context.foreignKeys.find(
     (key) => key.dimension.model.generated === "date" && key.source !== null,
@@ -226,6 +242,7 @@ export function factFile(context: SqlContext): GeneratedFile {
     eligible,
     reject,
     insert,
+    indexes,
   ].join("\n\n");
   return {
     name: "04_fact.sql",

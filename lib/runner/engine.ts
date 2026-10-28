@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { invalidateSemanticCache } from "@/lib/semantic/query/cache";
 import { createWriteStream } from "node:fs";
 import { rename, rm, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
@@ -404,6 +405,7 @@ async function executeJob(
       });
     } else {
       transitionRun(job.run.id, "succeeded");
+      invalidateSemanticCache(job.run.projectId);
     }
     jobs.delete(job.run.id);
     job.connection.password = "";

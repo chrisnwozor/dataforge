@@ -139,7 +139,7 @@ Storage contracts are in `lib/server/projects.ts`, profiler contracts in `lib/pr
 
 ## Later phases
 
-Upload, Profile, Model, Generate, Settings, and Runs now use real application state. Legacy fixtures remain isolated in `lib/data/mock.ts`; active run/history adapters do not use them. The landing illustration remains an illustration.
+Upload, Profile, Model, Measures, Generate, Settings, and Runs now use real application state. Legacy fixtures remain isolated in `lib/data/mock.ts`; active run/history adapters do not use them. The landing illustration remains an illustration.
 
 Future integration points:
 
@@ -150,7 +150,7 @@ Future integration points:
 
 Vitest covers inference thresholds, null/duplicate/key and near-key metrics, complete-row statistics, bounded paired sampling, dates and numeric ordering, CSV edge cases, XLSX parsing, every model suggestion rule, functional-dependency thresholds, model validation and editor moves, both sample datasets, SQLite persistence, additive migrations/backfill, atomic overrides, validated model APIs, and server input limits. Tests use temporary storage, not `data/`.
 
-Generator tests snapshot the complete Superstore pipeline and check identifier/literal escaping, Unicode/collision handling, SQL types, duplicate removal, incremental/full behavior, Unknown members, and saved aggregations. `node-sql-parser` runs in the `transactsql` dialect against supported emitted statements from every file. Its grammar does not support the complete SQL Server language: procedural `IF`/`TRY...CATCH` wrappers, `MERGE`, dynamic `BULK INSERT` and function definitions, session context, `SET IDENTITY_INSERT`, foreign-key DDL, named inline primary-key constraints, `COUNT_BIG(*)`, and `FOR JSON PATH` are excluded explicitly. An opt-in SQL Server integration test is provided to verify real execution when a dedicated server is configured.
+Generator tests snapshot the complete Superstore pipeline and check identifier/literal escaping, Unicode/collision handling, SQL types, duplicate removal, incremental/full behavior, Unknown members, and saved aggregations. `node-sql-parser` runs in the `transactsql` dialect against supported emitted statements from every file. Its grammar does not support the complete SQL Server language: procedural `IF`/`TRY...CATCH` wrappers, `MERGE`, dynamic `BULK INSERT` and function definitions, session context, `SET IDENTITY_INSERT`, foreign-key DDL, named inline primary-key constraints, clustered columnstore DDL, `COUNT_BIG(*)`, and `FOR JSON PATH` are excluded explicitly. An opt-in SQL Server integration test is provided to verify real execution when a dedicated server is configured.
 
 Server Components load data through `lib/data/`; interactive leaves handle upload, filters, type saves, theming, and menus. The existing design, routes, dark default, light mode, keyboard menus, focus rings, reduced motion, skeletons, and error boundaries are retained. The UI primitives are the Button and Radix-backed DropdownMenu in `components/ui/`.
 
@@ -248,3 +248,71 @@ DATAFORGE_SQL_TEST_WRITE_DIR=/mnt/sql-staging
 ```
 
 Run `pnpm test tests/sql-server.integration.test.ts`. It uses temporary SQLite storage and a temporary encryption key, uploads `samples/superstore_sales.csv`, executes a full deduplicated pipeline, and asserts `dw.fact_sales = 2,000` with zero rejects. It modifies generated objects in the supplied database and retains SQL objects/staging CSV afterward. Do not point it at a database containing data you need to keep. Optional `DATAFORGE_SQL_TEST_ENCRYPT=false` and `DATAFORGE_SQL_TEST_TRUST_CERTIFICATE=false` change TLS behavior; both default true for local development.
+
+## Semantic layer and Measures
+
+After configuring a connection and completing a successful load, open the **Measures** tab next to Model. DataForge derives tables, column roles, and many-to-one relationships using exactly the SQL names resolved by the warehouse generator. Defaults include the fact's saved aggregations, **Row Count**, distinct counts for degenerate identifiers, a calendar hierarchy, and dimension hierarchies supported by the profile's functional-dependency evidence. It never invents ratio measures. Calendar models also receive YTD, MTD, QTD, last-year, and YoY measures for each SUM measure.
+
+Measures are grouped in folders. Add or edit a name, expression, format, folder, and description; live validation reports errors and shows generated SQL. Save before using **Test value**, which queries the measure without grouping. The query tester can group selected measures by one or two attributes and displays results, elapsed time, cache status, and SQL. The hierarchy list shows coarse-to-fine levels. **Regenerate defaults** refreshes automatic definitions while retaining user-defined measures. Editing an automatic measure makes it a user definition.
+
+SQLite stores validated definitions in `semantic_measures` and `semantic_hierarchies`; schema upgrades are additive. Semantic edits change the semantic version and invalidate the project's cached results. After changing physical table or column names in Model, reload the warehouse and regenerate semantic defaults before querying it; custom definitions remain available for editing.
+
+### Expression language
+
+This is a small DataForge language, **not DAX**. It has no SQL statements, comments, evaluation functions, or arbitrary functions. Expressions are limited to 2,000 characters and 12 nesting levels; referenced-measure expansion has a compile-time budget and detects cycles. Unknown references include their character position and a suggested matching name when available.
+
+| Syntax                                       | Meaning / example                                                                                                                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Literals                                     | Numbers, `'strings'`, `TRUE`, `FALSE`, `NULL`. Escape an apostrophe as `''`.                                                                                               |
+| `[Measure Name]`                             | A saved measure, for example `[Sales]`. Escape a closing bracket as `]]`.                                                                                                  |
+| `Table[Column]`                              | A validated semantic column, for example `fact_sales[Sales]`. A table name containing spaces can be quoted as `'Fact Sales'[Sales]`.                                       |
+| Aggregations                                 | `SUM`, `AVG`, `MIN`, `MAX`, `COUNT`, `DISTINCTCOUNT` over a fact column; `COUNT_BIG(*)` for row counts.                                                                    |
+| Arithmetic                                   | `+`, `-`, `*`, `/`, parentheses, comparisons, `AND`, `OR`, `NOT`. Prefer `DIVIDE` for a safe zero denominator.                                                             |
+| `DIVIDE(a, b, alternate)`                    | Null-safe division; alternate defaults to `NULL`. Example: `DIVIDE([Profit], [Sales], 0)`.                                                                                 |
+| `IF(condition, a, b)`                        | Conditional scalar expression. Example: `IF([Sales] > 0, [Profit], 0)`.                                                                                                    |
+| `ABS`, `ROUND`                               | Numeric scalar functions, for example `ROUND(ABS([Profit]), 2)`.                                                                                                           |
+| `CALCULATE(expr, filter, ...)`               | Changes aggregation filter context, for example `CALCULATE([Sales], dim_product[Category] = 'Furniture')` or `CALCULATE([Sales], dim_region[Region] IN ('East', 'West'))`. |
+| `ALL(Table[Column])`                         | Used inside `CALCULATE` to remove that attribute's filtering/grouping context, for example `DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[Category])))`.              |
+| `YTD`, `MTD`, `QTD`                          | Calendar-to-date aggregates, for example `YTD([Sales])`.                                                                                                                   |
+| `SAMEPERIODLASTYEAR(expr)`                   | Evaluates the corresponding date interval one year earlier.                                                                                                                |
+| `PREVIOUSPERIOD(expr, MONTH\|QUARTER\|YEAR)` | Evaluates the previous calendar period.                                                                                                                                    |
+
+Time functions require the generated calendar relationship. They use set-based SQL with date context from the query, preserve non-date grouping, and do not create scalar UDFs or cursors. Auto YoY uses null-safe division, so an absent or zero prior period returns `NULL`. Format `percent` displays a fraction as a percentage; the SQL result remains a numeric fraction.
+
+Identifiers come from resolved semantic metadata and are bracket-escaped. Literal/filter values become typed SQL parameters. Quotes, brackets, semicolons, or SQL-looking text in a name or filter cannot add a statement. The parser, type checker, dependency resolver, and compiler run on the server before any database request.
+
+### Query API and cache
+
+All semantic/query endpoints require a configured connection and a successful project run; otherwise they return `409` with setup guidance. They use the saved SQL-auth connection. No endpoint accepts SQL text. The generated query is one parameterized SELECT (possibly using CTEs), joins only required dimensions, has a 30-second timeout, caps results, and cancels with the request's AbortSignal.
+
+| Endpoint                                             | Behavior                                                                                                                                           |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/projects/<id>/semantic`                    | Returns the derived semantic model, saved measures, hierarchies, and version; initializes defaults on first use.                                   |
+| `PUT /api/projects/<id>/semantic`                    | Saves `{ measures, hierarchies, version? }` with schema/expression validation and optional version conflict detection.                             |
+| `POST /api/projects/<id>/semantic/measures/validate` | Accepts `{ expression }`; returns validation details, an AST summary, dependencies, and compiled SQL preview.                                      |
+| `POST /api/projects/<id>/semantic/regenerate`        | Rebuilds automatic defaults without deleting custom measures.                                                                                      |
+| `POST /api/projects/<id>/query`                      | Executes a validated semantic query and returns columns, rows, row count, truncation, elapsed milliseconds, cache status, and generated SQL.       |
+| `GET /api/projects/<id>/query/values?attribute=...`  | Returns up to 1,000 distinct attribute values with counts for slicers; the attribute can be a column ID or a URL-encoded JSON attribute reference. |
+
+Query attribute references use `{ "table": "<table id>", "column": "<column id>" }` from the returned semantic model. A basic request is:
+
+```json
+{
+  "measures": ["<measure id>"],
+  "rows": [{ "table": "<table id>", "column": "<column id>" }],
+  "filters": [],
+  "orderBy": [],
+  "limit": 1000,
+  "hideUnknown": true
+}
+```
+
+The maximum limit is 50,000. Filters use `{ attribute, op, value }`, or `values` for `in`/`notIn`; supported operations are `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `isNull`, and `isNotNull`. Ordering uses `{ ref, dir: "asc" | "desc" }`, where the reference is a selected measure/column ID or attribute reference. Optional `topN: { measure, n }` sorts by a selected measure. Optional `columns` requests a long result plus a client-pivot hint and limits distinct column-axis tuples to 50. Unknown members of referenced dimensions are hidden by default; use `hideUnknown: false` to include them. Result column keys are generated aliases such as `a0`/`m0`; use the returned column metadata to read each row.
+
+The process-local LRU holds at most **200 entries / 64 MiB**, including slicer results. Keys contain project ID, latest successful run ID, semantic version, connection version, and normalized query options. Successful loads and semantic edits invalidate that project's entries. A restart clears the cache; eviction or an oversized result simply causes a later query to execute again. Returned SQL contains parameter placeholders rather than interpolated values.
+
+### Columnstore
+
+**Columnstore (recommended)** defaults on in Model and is persisted with the model. After fact loading, `04_fact.sql` ensures a clustered columnstore index and keeps the identity primary key nonclustered, upgrading an older generated clustered primary key when necessary. Incremental loads insert into the columnstore normally. Generated foreign-key rowstore indexes are retained only when columnstore is disabled. This changes the generated warehouse DDL; review the scripts and execute a new load to apply a changed setting.
+
+The opt-in SQL Server integration test also compares semantic Sales by Category with fact-table SQL, checks YoY and Unknown-member behavior, and times a three-dimension query against the loaded Superstore sample. It remains skipped unless the existing integration environment flag and SQL Server settings are supplied.

@@ -7,11 +7,13 @@ import {
   Workflow,
   Terminal,
   History,
+  Sigma,
 } from "lucide-react";
 const tabs = [
   { label: "Overview", path: "", Icon: LayoutDashboard },
   { label: "Profile", path: "/profile", Icon: ListFilter },
   { label: "Model", path: "/model", Icon: Workflow },
+  { label: "Measures", path: "/measures", Icon: Sigma },
   { label: "Generate", path: "/generate", Icon: Terminal },
   { label: "Runs", path: "/runs", Icon: History },
 ];
