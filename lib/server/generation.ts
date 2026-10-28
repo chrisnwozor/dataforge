@@ -4,6 +4,7 @@ import { generateSql } from "@/lib/sql";
 import type { GeneratedFile, SqlColumn } from "@/lib/sql/types";
 import { modelSchema } from "@/lib/modeling/schema";
 import type { Model, ModelValidationIssue } from "@/lib/modeling/types";
+import { validateModel } from "@/lib/modeling/validate";
 import { getOrCreateModel } from "./models";
 import { ensureProjectEvidence, readColumnProfiles } from "./projects";
 import { HttpError } from "./http";
@@ -46,7 +47,7 @@ const generationResponseSchema: z.ZodType<GenerationResponse> = z
     validation: z.array(
       z
         .object({
-          severity: z.enum(["error", "warning"]),
+          severity: z.enum(["error", "warning", "info"]),
           code: z.string(),
           message: z.string(),
         })
@@ -273,6 +274,7 @@ function generationIssues(
 export async function getGeneration(
   projectId: string,
   options: GenerationRequestOptions | URLSearchParams = {},
+  execution?: { runId: string; filePath: string },
 ): Promise<GenerationResponse> {
   const requested =
     options instanceof URLSearchParams
@@ -291,7 +293,13 @@ export async function getGeneration(
     database: requested.db ?? "DataForge",
   };
   const validation = [
-    ...saved.validation,
+    ...validateModel(
+      { ...saved.model, removeExactDuplicates: resolved.dedupe },
+      columns.map((column) => ({
+        id: String(column.ordinal),
+        name: column.name,
+      })),
+    ),
     ...generationIssues(saved.model, columns, resolved.incremental),
   ];
   const files = validation.some((issue) => issue.severity === "error")
@@ -303,6 +311,7 @@ export async function getGeneration(
         options: {
           ...resolved,
           generatedAt: `${new Date().toISOString().slice(0, 10)} UTC`,
+          ...execution,
         },
       });
   return generationResponseSchema.parse({

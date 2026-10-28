@@ -63,6 +63,66 @@ export function getDatabase(): DatabaseSync {
         source TEXT NOT NULL CHECK (source IN ('suggested', 'edited')),
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS connection_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        server TEXT NOT NULL,
+        port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+        database_name TEXT NOT NULL,
+        username TEXT NOT NULL,
+        password_encrypted TEXT NOT NULL,
+        encrypt INTEGER NOT NULL CHECK (encrypt IN (0, 1)),
+        trust_server_certificate INTEGER NOT NULL CHECK (trust_server_certificate IN (0, 1)),
+        staging_folder TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS runs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+        mode TEXT NOT NULL CHECK (mode IN ('full', 'incremental')),
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        rows_staged INTEGER NOT NULL DEFAULT 0 CHECK (rows_staged >= 0),
+        rows_loaded INTEGER NOT NULL DEFAULT 0 CHECK (rows_loaded >= 0),
+        rows_rejected INTEGER NOT NULL DEFAULT 0 CHECK (rows_rejected >= 0),
+        error_file TEXT,
+        error_message TEXT,
+        error_batch INTEGER,
+        error_number INTEGER,
+        error_line INTEGER,
+        owner_pid INTEGER,
+        options_json TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS runs_one_active_per_project
+        ON runs(project_id) WHERE status IN ('queued', 'running');
+      CREATE INDEX IF NOT EXISTS runs_project_started ON runs(project_id, started_at DESC);
+      CREATE TABLE IF NOT EXISTS run_steps (
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+        file TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'skipped')),
+        started_at TEXT,
+        finished_at TEXT,
+        rows_affected INTEGER NOT NULL DEFAULT 0,
+        message TEXT,
+        PRIMARY KEY (run_id, ordinal)
+      );
+      CREATE TABLE IF NOT EXISTS run_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        ts TEXT NOT NULL,
+        level TEXT NOT NULL CHECK (level IN ('INFO', 'WARN', 'ERROR', 'SUCCESS')),
+        message TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS run_logs_run_id ON run_logs(run_id, id);
+      CREATE TABLE IF NOT EXISTS run_reject_rows (
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        source_row_number INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        raw_json TEXT NOT NULL,
+        PRIMARY KEY (run_id, ordinal)
+      );
     `);
     // Serialize additive migrations across development workers opening the same file.
     database.exec("BEGIN IMMEDIATE");
@@ -103,6 +163,14 @@ export function getDatabase(): DatabaseSync {
         database.exec(
           "ALTER TABLE column_profiles ADD COLUMN max_decimal_places INTEGER CHECK (max_decimal_places >= 0 AND max_decimal_places <= 6)",
         );
+      const runColumns = new Set(
+        database
+          .prepare("PRAGMA table_info(runs)")
+          .all()
+          .map((row) => row.name),
+      );
+      if (!runColumns.has("owner_pid"))
+        database.exec("ALTER TABLE runs ADD COLUMN owner_pid INTEGER");
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");

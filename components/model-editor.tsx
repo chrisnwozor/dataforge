@@ -392,6 +392,7 @@ export function ModelEditor({
   const issues = useMemo(() => validateModel(model, columns), [model, columns]);
   const errors = issues.filter((issue) => issue.severity === "error");
   const warnings = issues.filter((issue) => issue.severity === "warning");
+  const notes = issues.filter((issue) => issue.severity === "info");
   const find = (id: string) => columns.find((column) => column.id === id);
 
   const flush = useCallback(
@@ -600,7 +601,12 @@ export function ModelEditor({
       <fieldset disabled={regenerating} className="model-editor-fields">
         <div className="toolbar">
           <div className="toolbar-left">
-            <span className={cn("status-dot", issues.length && "warning")} />
+            <span
+              className={cn(
+                "status-dot",
+                errors.length + warnings.length > 0 && "warning",
+              )}
+            />
             <span className="small muted">
               {model.unassigned.length
                 ? `${model.unassigned.length} columns waiting for a home`
@@ -917,6 +923,7 @@ export function ModelEditor({
                   Validation{" "}
                   <span className="count">
                     {errors.length} errors · {warnings.length} warnings
+                    {notes.length > 0 && ` · ${notes.length} ${notes.length === 1 ? "note" : "notes"}`}
                   </span>
                 </h2>
                 {issues.length ? (
@@ -927,7 +934,9 @@ export function ModelEditor({
                         className={
                           issue.severity === "error"
                             ? "model-validation-error"
-                            : "model-validation-warning"
+                            : issue.severity === "warning"
+                              ? "model-validation-warning"
+                              : "muted"
                         }
                       >
                         <span className="sr-only">{issue.severity}: </span>

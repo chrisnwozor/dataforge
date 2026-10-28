@@ -148,7 +148,22 @@ export function validateModel(
       `${unassigned.length} source ${unassigned.length === 1 ? "column is" : "columns are"} unassigned: ${unassigned.map((column) => model.columnNames[column.id] || column.name).join(", ")}.`,
       "warning",
     );
-  for (const warning of model.warnings)
-    add("suggestion-warning", warning, "warning");
+  for (const warning of model.warnings) {
+    if (
+      model.removeExactDuplicates &&
+      /\bduplicat(?:e|ed|es)\b/i.test(warning)
+    ) {
+      const count = warning.match(
+        /([\d,]+)\s+(?:fully\s+)?duplicat(?:e|ed)\s+rows?\b/i,
+      )?.[1];
+      add(
+        "duplicates-removed",
+        count
+          ? `${count} duplicate ${count === "1" ? "row will" : "rows will"} be removed during the load.`
+          : "Exact duplicate rows will be removed during the load.",
+        "info",
+      );
+    } else add("suggestion-warning", warning, "warning");
+  }
   return issues;
 }

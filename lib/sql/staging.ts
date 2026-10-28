@@ -20,6 +20,15 @@ export function stagingFile(context: SqlContext): GeneratedFile {
   const viewSql = `CREATE OR ALTER VIEW ${importView} AS SELECT ${rawColumns.join(", ")} FROM ${stage};`;
   const bulkPrefix = `BULK INSERT ${importView} FROM '`;
   const bulkSuffix = `' WITH (FORMAT = 'CSV', FIRSTROW = 2, CODEPAGE = '65001', FIELDTERMINATOR = ',', FIELDQUOTE = '"', ROWTERMINATOR = '0x0a', TABLOCK);`;
+  const filePath = context.input.options.filePath;
+  if (
+    filePath &&
+    (filePath.length > 4000 ||
+      /[\u0000-\u001f\u007f\u2028\u2029]/.test(filePath))
+  )
+    throw new Error(
+      "The staging file path contains unsupported characters or exceeds 4,000 characters.",
+    );
   const body = `  IF OBJECT_ID(${sqlLiteral(stage)}, N'U') IS NULL
     CREATE TABLE ${stage} (
 ${definitions.join(",\n")},
@@ -31,7 +40,7 @@ ${definitions.join(",\n")},
   -- REQUIRED: replace @FilePath with the server-accessible path to DataForge's Cleaned CSV.
   -- Download Cleaned CSV even for XLSX, BOM, semicolon, or tab-delimited source files.
   -- SQL Server's service account needs read access to this file; the browser's path is not sufficient.
-  DECLARE @FilePath NVARCHAR(4000) = N'C:\\DataForge\\REPLACE_WITH_CLEANED_SOURCE.csv';
+  DECLARE @FilePath NVARCHAR(4000) = ${filePath ? sqlLiteral(filePath) : "N'C:\\DataForge\\REPLACE_WITH_CLEANED_SOURCE.csv'"};
   DECLARE @BulkSql NVARCHAR(MAX) = ${sqlLiteral(bulkPrefix)}
     + REPLACE(@FilePath, N'''', N'''''') + ${sqlLiteral(bulkSuffix)};
   EXEC [sys].[sp_executesql] @BulkSql;

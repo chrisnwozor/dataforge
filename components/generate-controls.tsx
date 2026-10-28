@@ -1,6 +1,8 @@
 "use client";
 
 import { useId } from "react";
+import Link from "next/link";
+import type { RunRecord } from "@/lib/runner/types";
 import { Play, ShieldCheck, Database, Download, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 
@@ -16,6 +18,13 @@ export function GenerateControls({
   onDedupeChange,
   onDatabaseChange,
   cleanedUrl,
+  runDisabledReason,
+  startingRun,
+  connectionConfigured,
+  connectionServer,
+  activeRun,
+  onRun,
+  onOpenActiveRun,
 }: {
   incremental: boolean;
   dedupe: boolean;
@@ -28,6 +37,13 @@ export function GenerateControls({
   onDedupeChange: (value: boolean) => void;
   onDatabaseChange: (value: string) => void;
   cleanedUrl: string;
+  runDisabledReason: string;
+  startingRun: boolean;
+  connectionConfigured: boolean;
+  connectionServer: string;
+  activeRun: RunRecord | null;
+  onRun: () => void;
+  onOpenActiveRun: () => void;
 }) {
   const id = useId();
   function downloadCleaned() {
@@ -49,6 +65,12 @@ export function GenerateControls({
             <span>Target</span>
             <span>SQL Server 2019+</span>
           </div>
+          {connectionConfigured && (
+            <div className="detail-row">
+              <span>Server</span>
+              <span className="mono">{connectionServer}</span>
+            </div>
+          )}
           <div className="detail-row">
             <span>Schemas</span>
             <span className="mono">stg · dw · etl</span>
@@ -151,28 +173,59 @@ export function GenerateControls({
           </p>
           <span
             className="generate-run-disabled"
-            title="Execution arrives in the next phase"
+            title={
+              runDisabledReason ||
+              "Execute the generated scripts against the saved SQL Server connection."
+            }
           >
             <Button
               className="full-width"
-              disabled
-              title="Execution arrives in the next phase"
+              disabled={!!runDisabledReason || startingRun}
+              onClick={onRun}
+              title={
+                runDisabledReason ||
+                "Execute the generated scripts against the saved SQL Server connection."
+              }
               aria-describedby={`${id}-execution-help`}
             >
-              <Play size={13} /> Run load
+              {startingRun ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Play size={13} />
+              )}{" "}
+              {startingRun ? "Starting…" : "Run load"}
             </Button>
           </span>
-          <span id={`${id}-execution-help`} className="sr-only">
-            Execution arrives in the next phase
-          </span>
+          <p
+            id={`${id}-execution-help`}
+            className="help-text generate-option-help"
+          >
+            {runDisabledReason ||
+              "Review the target and confirm before the scripts execute."}
+            {!connectionConfigured && (
+              <>
+                {" "}
+                <Link href="/settings#connection">Configure connection</Link>
+              </>
+            )}
+          </p>
+          {activeRun && (
+            <Button
+              variant="outline"
+              className="full-width"
+              onClick={onOpenActiveRun}
+            >
+              View active run
+            </Button>
+          )}
         </div>
       </section>
       <div className="model-hint" style={{ marginTop: 14 }}>
         <ShieldCheck size={14} style={{ marginBottom: 8 }} />
         <p>Review before you run.</p>
         <p style={{ marginTop: 5 }}>
-          Download and review these scripts, then run them in SSMS or Azure Data
-          Studio. DataForge does not execute SQL in this phase.
+          Loads use your saved SQL Server connection. Review the generated
+          scripts and target before confirming a run.
         </p>
       </div>
     </aside>

@@ -1,6 +1,8 @@
 import type { Project, ColumnProfile, Activity } from "@/lib/types";
 import type { InferredType } from "@/lib/profiler";
 import { HttpError } from "@/lib/server/http";
+import { recoverInterruptedRuns } from "@/lib/runner";
+import { listRuns } from "@/lib/server/runs";
 import {
   getGeneration,
   type GenerationRequestOptions,
@@ -20,7 +22,10 @@ import {
   readSavedModel,
 } from "@/lib/server/models";
 
-export { getRuns } from "./mock";
+export async function getRuns(id: string) {
+  recoverInterruptedRuns();
+  return listRuns(id);
+}
 
 export async function getGeneratedFiles(
   id: string,
@@ -56,6 +61,12 @@ function relativeTime(timestamp: string): string {
   return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 function toProject(project: StoredProject): Project {
+  const runs = listRuns(project.id);
+  const latestRun = runs[0];
+  const hasSucceeded = runs.some((run) => run.status === "succeeded");
+  const activeRun = runs.some(
+    (run) => run.status === "queued" || run.status === "running",
+  );
   let savedModel: ReturnType<typeof readSavedModel>;
   try {
     savedModel = readSavedModel(project.id);
@@ -74,17 +85,33 @@ function toProject(project: StoredProject): Project {
     columns: project.columnCount,
     updatedAt: relativeTime(project.updatedAt),
     tables: savedModel ? 1 + savedModel.model.dimensions.length : 0,
-    lastRun: "Not run yet",
-    activity: [],
-    stage: savedModel ? 3 : 2,
+    lastRun: latestRun
+      ? `${latestRun.status[0].toUpperCase()}${latestRun.status.slice(1)} · ${relativeTime(latestRun.finishedAt ?? latestRun.startedAt)}`
+      : "Not run yet",
+    activity: runs
+      .filter((run) => run.finishedAt)
+      .slice(0, 12)
+      .reverse()
+      .map((run) => run.rowsLoaded),
+    stage: activeRun
+      ? 4
+      : hasSucceeded
+        ? 5
+        : latestRun
+          ? 4
+          : savedModel
+            ? 3
+            : 2,
     duplicateRows: project.duplicateRowCount,
     totalNullCells: project.totalNullCells,
   };
 }
 export async function getProjects(): Promise<Project[]> {
+  recoverInterruptedRuns();
   return listProjects().map(toProject);
 }
 export async function getProject(id: string): Promise<Project | undefined> {
+  recoverInterruptedRuns();
   const project = findProject(id);
   return project ? toProject(await ensureProjectEvidence(id)) : undefined;
 }
@@ -115,18 +142,37 @@ export async function getProfileReport(id: string) {
 export async function getActivity(id: string): Promise<Activity[]> {
   const project = findProject(id);
   if (!project) return [];
-  return [
+  const activity = [
     {
+      id: "profile",
       title: "Data profile completed",
       description: `${project.columnCount} columns analyzed across ${project.rowCount.toLocaleString("en-US")} rows.`,
       time: relativeTime(project.createdAt),
       kind: "profile",
+      timestamp: project.createdAt,
     },
     {
+      id: "upload",
       title: "Source file uploaded",
       description: project.sourceFile,
       time: relativeTime(project.createdAt),
       kind: "upload",
+      timestamp: project.createdAt,
     },
+    ...listRuns(id).map((run) => ({
+      id: run.id,
+      title: `SQL load ${run.status}`,
+      description:
+        run.status === "succeeded"
+          ? `${run.rowsLoaded.toLocaleString("en-US")} rows loaded · ${run.rowsRejected.toLocaleString("en-US")} rejected · ${run.mode} mode.`
+          : `${run.mode === "incremental" ? "Incremental" : "Full"} load · ${run.errorMessage ?? (run.status === "queued" ? "Waiting to start." : run.status === "running" ? "Execution in progress." : "See run details for the execution log.")}`,
+      time: relativeTime(run.finishedAt ?? run.startedAt),
+      timestamp: run.finishedAt ?? run.startedAt,
+      kind: "run",
+    })),
   ];
+  return activity
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    .slice(0, 8)
+    .map((item) => ({ ...item, kind: item.kind as Activity["kind"] }));
 }
