@@ -47,6 +47,8 @@ export interface Model {
   columnNames: Record<string, string>;
   reasons: Record<string, string>;
   removeExactDuplicates: boolean;
+  /** Older saved drafts default to columnstore when validated. */
+  columnstore?: boolean;
   warnings: string[];
 }
 

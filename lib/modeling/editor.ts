@@ -16,7 +16,8 @@ export type ModelAction =
   | { type: "key"; id: string; column: string }
   | { type: "remove"; id: string }
   | { type: "aggregation"; column: string; aggregation: Aggregation }
-  | { type: "duplicates"; value: boolean };
+  | { type: "duplicates"; value: boolean }
+  | { type: "columnstore"; value: boolean };
 
 function keyName(name: string): string {
   return (
@@ -105,6 +106,8 @@ export function modelReducer(state: Model, action: ModelAction): Model {
   switch (action.type) {
     case "replace":
       return structuredClone(action.model);
+    case "columnstore":
+      return { ...state, columnstore: action.value };
     case "move": {
       if (!Object.hasOwn(state.columnNames, action.column)) return state;
       const target = state.dimensions.find((d) => d.id === action.target);

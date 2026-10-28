@@ -269,6 +269,23 @@ describe("persisted model editor edits", () => {
     replacement.fact.measures[0].name = "Changed outside the editor";
     expect(model.fact.measures[0].name).toBe("Sales");
   });
+  it("defaults legacy model drafts to columnstore and persists the option without changing assignments", () => {
+    const original = initial();
+    expect(modelSchema.parse(original).columnstore).toBe(true);
+    const edited = modelReducer(original, {
+      type: "columnstore",
+      value: false,
+    });
+    expect(modelSchema.parse(edited).columnstore).toBe(false);
+    expect(assignments(edited)).toEqual(assignments(original));
+    expect(original.columnstore).toBeUndefined();
+    expect(
+      modelReducer(edited, { type: "columnstore", value: true }).columnstore,
+    ).toBe(true);
+    expect(
+      modelSchema.safeParse({ ...original, columnstore: "true" }).success,
+    ).toBe(false);
+  });
 
   it("bounds generated foreign-key names and collision suffixes after long renames", () => {
     const longName = "a".repeat(128);

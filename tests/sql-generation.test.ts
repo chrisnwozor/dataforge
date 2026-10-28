@@ -255,7 +255,7 @@ describe("saved-model T-SQL generation", () => {
     expect(fact).toContain("TRY_CONVERT");
     expect(fact).toContain("FOR JSON PATH");
     expect(fact).toMatch(/COALESCE\([\s\S]*?-1\)/);
-    expect(fact).toContain("CREATE NONCLUSTERED INDEX");
+    expect(fact).toContain("CREATE CLUSTERED COLUMNSTORE INDEX");
     const checks = sql(sales, "05_checks.sql");
     expect(checks).toMatch(/TOP\s*\(?10\)?/);
     expect(checks).toContain("[raw_json]");
@@ -267,6 +267,62 @@ describe("saved-model T-SQL generation", () => {
     expect(checks).toMatch(/MAX\(.*\[sales\]/);
     expect(checks).toMatch(/AVG\(.*\[discount\]/);
     expect(sql(input, "04_fact.sql")).not.toMatch(/GROUP BY/);
+  });
+  it("uses columnstore by default and upgrades generated clustered primary keys after loading", () => {
+    const fact = sql(sales, "04_fact.sql");
+    expect(fact).toContain(
+      "CONSTRAINT [pk_fact_sales] PRIMARY KEY NONCLUSTERED",
+    );
+    expect(fact).toContain("[pk].[unique_index_id]");
+    expect(fact).toContain("[i].[type] = 1");
+    expect(fact).toContain(
+      "ALTER TABLE [dw].[fact_sales] DROP CONSTRAINT [pk_fact_sales]",
+    );
+    expect(fact).toContain(
+      "ADD CONSTRAINT [pk_fact_sales] PRIMARY KEY NONCLUSTERED ([fact_sales_key])",
+    );
+    expect(fact).toContain("AND [type] = 5");
+    expect(fact).toContain(
+      "CREATE CLUSTERED COLUMNSTORE INDEX [cci_fact_sales] ON [dw].[fact_sales]",
+    );
+    expect(fact.indexOf("CREATE CLUSTERED COLUMNSTORE INDEX")).toBeGreaterThan(
+      fact.indexOf("SET @RowsOut = @@ROWCOUNT"),
+    );
+    expect(fact).not.toContain("CREATE NONCLUSTERED INDEX");
+    for (const key of buildSqlContext(sales).foreignKeys)
+      expect(fact).toContain(`DROP INDEX [ix_fact_sales_${key.name}]`);
+    expect(fact).toContain("external incoming foreign keys");
+    expect(fact).toContain("external clustered index");
+    const oldDraft = structuredClone(sales);
+    delete oldDraft.model.columnstore;
+    expect(sql(oldDraft, "04_fact.sql")).toBe(fact);
+  });
+  it("restores rowstore and FK indexes when columnstore is disabled", () => {
+    const input = structuredClone(sales);
+    input.model.columnstore = false;
+    const fact = sql(input, "04_fact.sql");
+    expect(fact).toContain("CONSTRAINT [pk_fact_sales] PRIMARY KEY CLUSTERED");
+    expect(fact).toContain("DROP INDEX [cci_fact_sales] ON [dw].[fact_sales]");
+    expect(fact).toContain(
+      "ADD CONSTRAINT [pk_fact_sales] PRIMARY KEY CLUSTERED",
+    );
+    expect(fact).not.toContain("CREATE CLUSTERED COLUMNSTORE INDEX");
+    expect(fact.match(/CREATE NONCLUSTERED INDEX/g)).toHaveLength(4);
+    expect(fact.indexOf("CREATE NONCLUSTERED INDEX")).toBeGreaterThan(
+      fact.indexOf("SET @RowsOut = @@ROWCOUNT"),
+    );
+  });
+  it("keeps normal incremental inserts into columnstore without rebuilding it", () => {
+    const input = structuredClone(sales);
+    input.options.incremental = true;
+    const fact = sql(input, "04_fact.sql");
+    expect(fact).toContain("INSERT INTO [dw].[fact_sales]");
+    expect(fact).not.toContain("TRUNCATE TABLE [dw].[fact_sales]");
+    expect(fact).not.toContain("DROP INDEX [cci_fact_sales]");
+    expect(fact).not.toContain("REBUILD");
+    expect(fact).toContain(
+      "AND [type] = 5)\n    CREATE CLUSTERED COLUMNSTORE INDEX",
+    );
   });
   it("handles no-date IRCC models without inventing a calendar or a date watermark", async () => {
     const input = await sampleInput("ircc-style.csv");
@@ -341,7 +397,7 @@ describe("saved-model T-SQL generation", () => {
 /** Extract emitted standalone statements without cutting inside SQL strings or identifiers. */
 function fragments(sqlText: string): string[] {
   const starts =
-    /(?:^|\n)[ \t]*(USE\b|CREATE TABLE\b|CREATE (?:NONCLUSTERED )?INDEX\b|TRUNCATE TABLE\b|INSERT INTO\b|SELECT TOP\b)/g;
+    /(?:^|\n)[ \t]*(USE\b|CREATE TABLE\b|CREATE (?:NONCLUSTERED |CLUSTERED COLUMNSTORE )?INDEX\b|TRUNCATE TABLE\b|INSERT INTO\b|SELECT TOP\b)/g;
   const results: string[] = [];
   const candidates = new Map(
     [...sqlText.matchAll(starts)].map((match) => [
@@ -404,6 +460,7 @@ describe("transactsql parser coverage", () => {
         // rewrite them into another dialect or silently skip unknown failures.
         const unsupported = [
           [/FOREIGN KEY/i, "foreign-key DDL"],
+          [/CREATE CLUSTERED COLUMNSTORE INDEX/i, "columnstore index DDL"],
           [
             /CONSTRAINT \[[^\]]+\] PRIMARY KEY/i,
             "named inline primary-key constraint",

@@ -69,6 +69,7 @@ export const modelSchema: z.ZodType<Model> = z
       .record(sourceId, reason)
       .refine((value) => Object.keys(value).length <= 10_000),
     removeExactDuplicates: z.boolean(),
+    columnstore: z.boolean().default(true),
     warnings: z.array(reason).max(10_000),
   })
   .strict();

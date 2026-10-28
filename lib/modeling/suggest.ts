@@ -175,6 +175,7 @@ export function suggestModel(input: SuggestionInput): Model {
     ),
     reasons: {},
     removeExactDuplicates: false,
+    columnstore: true,
     warnings: [],
   };
   const usedTableNames = new Set([model.fact.name]);

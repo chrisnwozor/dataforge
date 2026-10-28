@@ -923,7 +923,8 @@ export function ModelEditor({
                   Validation{" "}
                   <span className="count">
                     {errors.length} errors · {warnings.length} warnings
-                    {notes.length > 0 && ` · ${notes.length} ${notes.length === 1 ? "note" : "notes"}`}
+                    {notes.length > 0 &&
+                      ` · ${notes.length} ${notes.length === 1 ? "note" : "notes"}`}
                   </span>
                 </h2>
                 {issues.length ? (
@@ -966,6 +967,16 @@ export function ModelEditor({
                     <span>Remove exact duplicates</span>
                   </label>
                 )}
+                <label className="model-duplicate-option">
+                  <input
+                    type="checkbox"
+                    checked={model.columnstore !== false}
+                    onChange={(event) =>
+                      edit({ type: "columnstore", value: event.target.checked })
+                    }
+                  />
+                  <span>Columnstore (recommended)</span>
+                </label>
               </section>
             </aside>
           </div>
