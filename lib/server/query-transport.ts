@@ -4,6 +4,7 @@ import type { CompiledQuery, QueryTimings } from "@/lib/semantic/query/types";
 import type { SqlParameter } from "@/lib/semantic/types";
 import { connectionConfig, type SqlConnectionSettings } from "./connection";
 import { HttpError } from "./http";
+import { SqlStatisticsCollector } from "./sql-statistics";
 
 export const QUERY_REQUEST_TIMEOUT_MS = 30_000;
 export const QUERY_CANCEL_GRACE_MS = 5_000;
@@ -303,7 +304,7 @@ function bindParameter(
     );
   else request.input(parameter.name, sql.NVarChar(sql.MAX), value);
 }
-/** Only server-produced SELECTs reach this transport; no endpoint accepts SQL text. */
+/** Only server-produced query batches reach this transport; no endpoint accepts SQL text. */
 export async function executeCompiledQuery(
   settings: SqlConnectionSettings,
   compiled: CompiledQuery,
@@ -326,6 +327,12 @@ export async function executeCompiledQuery(
   let settled = false;
   let sentAt: number | undefined;
   let firstRowAt: number | undefined;
+  let finishedAt: number | undefined;
+  let statisticsEnabled = false;
+  let setStatistics: ((enabled: boolean) => Promise<void>) | undefined;
+  const statistics = compiled.diagnostics
+    ? new SqlStatisticsCollector()
+    : undefined;
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let grace: ReturnType<typeof setTimeout> | undefined;
   let cancelResolve!: (reason: Error) => void;
@@ -443,7 +450,57 @@ export async function executeCompiledQuery(
       },
       release() {},
     } as unknown as ConnectionPool;
-    request = new (sql.Request as unknown as RequestConstructor)(parent, {
+    const RequestClass = sql.Request as unknown as RequestConstructor;
+    setStatistics = async (enabled) => {
+      // SET is sent before the main RPC so SQL Server can report that RPC's
+      // initial parse/compile time, not merely deferred statement compiles.
+      const setting = new RequestClass(parent, {
+        requestTimeout: QUERY_CANCEL_GRACE_MS,
+      });
+      setting.on("error", () => {});
+      request = setting;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      // SQLBatch keeps this SET at connection scope. request.query would wrap
+      // it in sp_executesql, whose SET options are restored when that RPC ends.
+      const operation = setting.batch(
+        `SET STATISTICS TIME ${enabled ? "ON" : "OFF"};`,
+      );
+      try {
+        const outcome = await Promise.race([
+          operation.then(
+            () => ({ ok: true as const }),
+            (error: unknown) => ({ error }),
+          ),
+          stopped.then((error) => ({ error })),
+          new Promise<{ error: Error }>((resolve) => {
+            timer = setTimeout(() => {
+              try {
+                setting.cancel();
+              } catch {
+                /* The physical socket is closed below. */
+              }
+              resolve({
+                error: new HttpError(
+                  504,
+                  "SQL Server diagnostics setup or cleanup timed out.",
+                ),
+              });
+            }, QUERY_CANCEL_GRACE_MS);
+          }),
+        ]);
+        if ("error" in outcome) {
+          poison();
+          throw outcome.error;
+        }
+        statisticsEnabled = enabled;
+      } finally {
+        if (timer) clearTimeout(timer);
+        if (request === setting) request = undefined;
+      }
+    };
+    if (compiled.diagnostics) await setStatistics(true);
+    checkCancelled();
+    request = new RequestClass(parent, {
       requestTimeout: QUERY_REQUEST_TIMEOUT_MS,
     });
     for (const parameter of compiled.params)
@@ -460,6 +517,10 @@ export async function executeCompiledQuery(
       if ((error as { code?: string } | null)?.code === "ETIMEOUT")
         cancel(new QueryTimeoutError());
     });
+    if (statistics)
+      request.on("info", (info: { message?: unknown }) => {
+        if (typeof info.message === "string") statistics.add(info.message);
+      });
     checkCancelled();
     sentAt = performance.now();
     deadline = setTimeout(
@@ -474,6 +535,7 @@ export async function executeCompiledQuery(
       })
       .finally(() => {
         settled = true;
+        finishedAt = performance.now();
       });
     const outcome = await Promise.race([
       operation.then(
@@ -492,7 +554,13 @@ export async function executeCompiledQuery(
           }, QUERY_CANCEL_GRACE_MS);
         }),
       ]);
-      if (!settled || cancelReason instanceof QueryTimeoutError) poison();
+      if (
+        !settled ||
+        cancelReason instanceof QueryTimeoutError ||
+        compiled.materialized ||
+        compiled.diagnostics
+      )
+        poison();
       throw outcome.cancelled;
     }
     if ("error" in outcome) {
@@ -503,15 +571,27 @@ export async function executeCompiledQuery(
       }
       throw outcome.error;
     }
-    if (cancelReason) throw cancelReason;
+    if (cancelReason) {
+      if (compiled.materialized || compiled.diagnostics) poison();
+      throw cancelReason;
+    }
     return outcome.rows;
   } finally {
     if (deadline) clearTimeout(deadline);
     if (grace) clearTimeout(grace);
     signal?.removeEventListener("abort", abort);
     manager.cancel.delete(shutdown);
+    if (statisticsEnabled && !poisoned && !cancelReason) {
+      try {
+        await setStatistics?.(false);
+      } catch {
+        poison();
+      }
+    }
+    if (cancelReason && (compiled.materialized || compiled.diagnostics))
+      poison();
     if (sentAt !== undefined) {
-      const finished = performance.now();
+      const finished = finishedAt ?? performance.now();
       timings.sendToFirstRowMs = (firstRowAt ?? finished) - sentAt;
       timings.fetchMs = firstRowAt === undefined ? 0 : finished - firstRowAt;
     }
@@ -528,10 +608,11 @@ export async function executeCompiledQuery(
       void closeRetired(entry);
     }
     leave?.();
-    observe?.(
-      Object.fromEntries(
+    observe?.({
+      ...Object.fromEntries(
         Object.entries(timings).map(([key, value]) => [key, rounded(value)]),
       ),
-    );
+      ...statistics?.snapshot(),
+    });
   }
 }

@@ -16,6 +16,7 @@ import type {
   QueryValue,
 } from "./types";
 import { normalizeQuery } from "./schema";
+import { MaterializedPlan, materializedBatch } from "./materialize";
 
 export class QueryCompileError extends Error {
   readonly status = 400;
@@ -29,15 +30,6 @@ const quote = (name: string) => `[${name.replaceAll("]", "]]")}]`;
 const qualified = (table: SemanticTable) =>
   `${quote(table.schema)}.${quote(table.sqlName)}`;
 const fold = (value: string) => value.toLocaleLowerCase("en-US");
-const aggregates = new Set([
-  "SUM",
-  "AVG",
-  "MIN",
-  "MAX",
-  "COUNT",
-  "COUNT_BIG",
-  "DISTINCTCOUNT",
-]);
 const timeFunctions = new Set([
   "YTD",
   "MTD",
@@ -47,119 +39,6 @@ const timeFunctions = new Set([
 ]);
 type ColumnRef = { table: SemanticTable; column: SemanticColumn };
 type BoundFilter = QueryFilter & { resolved: ColumnRef };
-type RenderContext = {
-  filters: ResolvedExpr[];
-  ignored: Set<string>;
-  window?: { start: string; end: string };
-  windowKey?: string;
-};
-
-/** Positions and display labels do not change the identity of a resolved operation. */
-function expressionKey(node: ResolvedExpr): unknown {
-  switch (node.kind) {
-    case "literal":
-      return ["literal", node.value];
-    case "column":
-      return ["column", node.column.id];
-    case "measure":
-      return ["measure", node.measure.id];
-    case "unary":
-      return [node.op, expressionKey(node.operand)];
-    case "binary":
-      return [node.op, expressionKey(node.left), expressionKey(node.right)];
-    case "in":
-      return [
-        "in",
-        node.negated,
-        expressionKey(node.expression),
-        node.values.map(expressionKey),
-      ];
-    case "call":
-      return [node.name, node.args.map(expressionKey)];
-    case "period":
-      return ["period", node.value];
-    case "star":
-      return ["star"];
-  }
-}
-
-function contextKey(context: RenderContext): string {
-  return JSON.stringify([
-    context.filters.map(expressionKey),
-    [...context.ignored].sort(),
-    context.windowKey ?? context.window ?? null,
-  ]);
-}
-
-function calculateContext(
-  context: RenderContext,
-  filters: ResolvedExpr[],
-): RenderContext {
-  const next = {
-    ...context,
-    filters: [...context.filters],
-    ignored: new Set(context.ignored),
-  };
-  for (const filter of filters) {
-    const ids = filterColumns(filter);
-    next.filters = next.filters.filter(
-      (previous) => ![...filterColumns(previous)].some((id) => ids.has(id)),
-    );
-    for (const id of ids) next.ignored.add(id);
-    if (!(filter.kind === "call" && filter.name === "ALL"))
-      next.filters.push(filter);
-  }
-  return next;
-}
-
-/** Non-additive totals and shifted periods need their own aggregation scope. */
-function supportsSingleScan(
-  expressions: ResolvedExpr[],
-  groups: ColumnRef[],
-): boolean {
-  function visit(node: ResolvedExpr, context: RenderContext): boolean {
-    if (node.kind === "measure") return visit(node.expression, context);
-    if (node.kind === "call") {
-      if (timeFunctions.has(node.name)) return false;
-      if (node.name === "CALCULATE")
-        return visit(
-          node.args[0],
-          calculateContext(context, node.args.slice(1)),
-        );
-      if (aggregates.has(node.name)) {
-        const removesGrouping = groups.some((group) =>
-          context.ignored.has(group.column.id),
-        );
-        return (
-          !removesGrouping ||
-          ["SUM", "MIN", "MAX", "COUNT", "COUNT_BIG"].includes(node.name)
-        );
-      }
-      return node.args.every((argument) => visit(argument, context));
-    }
-    if (node.kind === "unary") return visit(node.operand, context);
-    if (node.kind === "binary")
-      return visit(node.left, context) && visit(node.right, context);
-    if (node.kind === "in")
-      return (
-        visit(node.expression, context) &&
-        node.values.every((value) => visit(value, context))
-      );
-    return true;
-  }
-  return expressions.every((expression) =>
-    visit(expression, { filters: [], ignored: new Set() }),
-  );
-}
-
-function filterColumns(node: ResolvedExpr): Set<string> {
-  const ids = new Set<string>();
-  walk(node, (child) => {
-    if (child.kind === "column") ids.add(child.column.id);
-  });
-  return ids;
-}
-
 function findOne<T>(
   values: T[],
   name: string,
@@ -328,6 +207,21 @@ class SqlBuilder {
     return `${quote(alias)}.${quote(ref.column.sqlName)}`;
   }
 
+  flatName(columnId: string): string {
+    const name = this.flatAliases.get(columnId);
+    if (!name) throw new QueryCompileError("Unknown prepared column.");
+    return name;
+  }
+
+  includeSurrogateKeys() {
+    for (const table of this.model.tables) {
+      if (table.id === this.fact.id || !this.usedTables.has(table.id)) continue;
+      const { source, target } = this.relationship(table);
+      this.addColumn({ table: this.fact, column: source });
+      this.addColumn({ table, column: target });
+    }
+  }
+
   private relationship(table: SemanticTable) {
     const links = this.model.relationships.filter(
       (link) =>
@@ -441,513 +335,6 @@ class SqlBuilder {
   }
 }
 
-function isPredicate(node: ResolvedExpr): boolean {
-  return (
-    node.kind === "in" ||
-    (node.kind === "unary" && node.op === "NOT") ||
-    (node.kind === "binary" &&
-      ["=", "<>", "!=", "<", ">", "<=", ">=", "AND", "OR"].includes(node.op))
-  );
-}
-
-interface AggregateSlot {
-  alias: string;
-  name: string;
-  argument: ResolvedExpr;
-  context: RenderContext;
-  sql?: string;
-}
-
-/**
- * An aggregate is a node in the plan, not a SQL string pasted into every
- * reference. Scalar nodes are projected after aggregation in dependency order.
- */
-class SharedAggregatePlan {
-  readonly aggregates: AggregateSlot[] = [];
-  private readonly aggregateKeys = new Map<string, AggregateSlot>();
-  private readonly windows = new Map<
-    string,
-    { alias: string; slot: AggregateSlot; kept: ColumnRef[] }
-  >();
-  private readonly scalars: { alias: string; sql: string }[] = [];
-  private readonly scalarKeys = new Map<string, string>();
-
-  constructor(
-    readonly builder: SqlBuilder,
-    readonly groups: ColumnRef[],
-    readonly filters: BoundFilter[],
-    readonly groupAliases: Map<string, string>,
-    readonly singleScan: boolean,
-  ) {}
-
-  aggregate(
-    name: string,
-    argument: ResolvedExpr,
-    context: RenderContext,
-    legacy: () => string,
-  ): string {
-    const normalized = name === "COUNT" ? "COUNT_BIG" : name;
-    const effectiveFilters = this.filters.filter(
-      (filter) => !context.ignored.has(filter.resolved.column.id),
-    );
-    const key = JSON.stringify([
-      normalized,
-      expressionKey(argument),
-      this.singleScan
-        ? [
-            effectiveFilters.map((filter) => [
-              filter.resolved.column.id,
-              filter.op,
-              filter.value,
-              filter.values,
-            ]),
-            context.filters.map(expressionKey),
-          ]
-        : contextKey(context),
-    ]);
-    let slot = this.aggregateKeys.get(key);
-    if (!slot) {
-      slot = {
-        alias: `__df_v${this.aggregates.length}`,
-        name: normalized,
-        argument,
-        context,
-        ...(!this.singleScan ? { sql: legacy() } : {}),
-      };
-      this.aggregateKeys.set(key, slot);
-      this.aggregates.push(slot);
-    }
-    if (
-      this.singleScan &&
-      this.groups.some((group) => context.ignored.has(group.column.id))
-    ) {
-      const kept = this.groups.filter(
-        (group) => !context.ignored.has(group.column.id),
-      );
-      const windowKey = JSON.stringify([
-        slot.alias,
-        kept.map((group) => group.column.id),
-      ]);
-      let window = this.windows.get(windowKey);
-      if (!window) {
-        window = { alias: `__df_w${this.windows.size}`, slot, kept };
-        this.windows.set(windowKey, window);
-      }
-      return `[s].${quote(window.alias)}`;
-    }
-    return `[s].${quote(slot.alias)}`;
-  }
-
-  scalar(id: string, context: RenderContext, render: () => string): string {
-    const key = JSON.stringify([id, contextKey(context)]);
-    const previous = this.scalarKeys.get(key);
-    if (previous) return `[s].${quote(previous)}`;
-    const sql = render();
-    const alias = `__df_d${this.scalars.length}`;
-    this.scalars.push({ alias, sql });
-    this.scalarKeys.set(key, alias);
-    return `[s].${quote(alias)}`;
-  }
-
-  /** A single grouped fact read plus windows for additive ALL/override scopes. */
-  groupedCte(from: string, unknown: string[]): string {
-    const overridden = new Set(
-      this.aggregates.flatMap((slot) => [...slot.context.ignored]),
-    );
-    const common = this.filters.filter(
-      (filter) => !overridden.has(filter.resolved.column.id),
-    );
-    const commonSet = new Set(common);
-    const where = [
-      ...unknown,
-      ...common.map((filter) => this.builder.filter(filter)),
-    ];
-    const rowRenderer = new ExpressionSql(
-      this.builder,
-      this.groups,
-      this.filters,
-      false,
-      this.groupAliases,
-    );
-    const projections = this.aggregates.map((slot) => {
-      const conditions = [
-        ...this.filters
-          .filter(
-            (filter) =>
-              !commonSet.has(filter) &&
-              !slot.context.ignored.has(filter.resolved.column.id),
-          )
-          .map((filter) => this.builder.filter(filter)),
-        ...slot.context.filters.map((filter) =>
-          rowRenderer.predicate(filter, slot.context),
-        ),
-      ];
-      const star = slot.argument.kind === "star";
-      const source =
-        slot.argument.kind === "column"
-          ? this.builder.column(slot.argument)
-          : "1";
-      const value = conditions.length
-        ? `CASE WHEN ${conditions.join(" AND ")} THEN ${source} END`
-        : source;
-      const sql =
-        slot.name === "DISTINCTCOUNT"
-          ? `COUNT_BIG(DISTINCT ${value})`
-          : slot.name === "COUNT_BIG"
-            ? `COUNT_BIG(${star && !conditions.length ? "*" : value})`
-            : `${slot.name}(${slot.name === "AVG" ? `CAST(${value} AS FLOAT)` : slot.name === "SUM" ? `CAST(${value} AS DECIMAL(38, 10))` : value})`;
-      return `${sql} AS ${quote(slot.alias)}`;
-    });
-    const driverConditions = this.filters
-      .filter((filter) => !commonSet.has(filter))
-      .map((filter) => this.builder.filter(filter));
-    projections.push(
-      `COUNT_BIG(${driverConditions.length ? `CASE WHEN ${driverConditions.join(" AND ")} THEN 1 END` : "*"}) AS [__df_group_count]`,
-    );
-    return `[__df_aggregates] AS (\n  SELECT ${[
-      ...this.groups.map(
-        (group) =>
-          `${this.builder.column(group)} AS ${quote(this.groupAliases.get(group.column.id)!)}`,
-      ),
-      ...projections,
-    ].join(
-      ",\n    ",
-    )}\n  FROM ${from}${where.length ? `\n  WHERE ${where.join(" AND ")}` : ""}${this.groups.length ? `\n  GROUP BY ${this.groups.map((group) => this.builder.column(group)).join(", ")}` : ""}\n)`;
-  }
-
-  projectionCtes(ctes: string[], source: string): string {
-    if (this.windows.size) {
-      const values = [...this.windows.values()].map((window) => {
-        const fn =
-          window.slot.name === "MIN" || window.slot.name === "MAX"
-            ? window.slot.name
-            : "SUM";
-        const partition = window.kept.length
-          ? `PARTITION BY ${window.kept.map((group) => `[s].${quote(this.groupAliases.get(group.column.id)!)}`).join(", ")}`
-          : "";
-        return `${fn}([s].${quote(window.slot.alias)}) OVER (${partition}) AS ${quote(window.alias)}`;
-      });
-      ctes.push(
-        `[__df_windows] AS (\n  SELECT [s].*, ${values.join(",\n    ")}\n  FROM ${quote(source)} AS [s]\n)`,
-      );
-      source = "__df_windows";
-    }
-    for (let index = 0; index < this.scalars.length; index++) {
-      const scalar = this.scalars[index];
-      const next = `__df_scalar_${index}`;
-      ctes.push(
-        `[${next}] AS (\n  SELECT [s].*, ${scalar.sql} AS ${quote(scalar.alias)}\n  FROM ${quote(source)} AS [s]\n)`,
-      );
-      source = next;
-    }
-    return source;
-  }
-}
-
-class ExpressionSql {
-  constructor(
-    readonly builder: SqlBuilder,
-    readonly groups: ColumnRef[],
-    readonly queryFilters: BoundFilter[],
-    readonly correlated: boolean,
-    readonly groupAliases: Map<string, string>,
-    readonly shared?: SharedAggregatePlan,
-  ) {}
-
-  predicate(
-    node: ResolvedExpr,
-    context: RenderContext,
-    alias?: string,
-  ): string {
-    return isPredicate(node)
-      ? this.render(node, context, alias, true)
-      : `(${this.render(node, context, alias)} = CAST(1 AS BIT))`;
-  }
-
-  private aggregate(
-    name: string,
-    argument: ResolvedExpr,
-    context: RenderContext,
-  ): string {
-    if (this.shared)
-      return this.shared.aggregate(name, argument, context, () =>
-        this.aggregateSql(name, argument, context),
-      );
-    return this.aggregateSql(name, argument, context);
-  }
-
-  private aggregateSql(
-    name: string,
-    argument: ResolvedExpr,
-    context: RenderContext,
-  ): string {
-    const alias = this.correlated ? "b" : undefined;
-    const star = argument.kind === "star";
-    const source = star ? "1" : this.render(argument, context, alias);
-    const conditions = context.filters.map((filter) =>
-      this.predicate(filter, context, alias),
-    );
-    const filtered = conditions.length
-      ? `CASE WHEN ${conditions.join(" AND ")} THEN ${source} END`
-      : source;
-    const aggregate =
-      name === "DISTINCTCOUNT"
-        ? `COUNT_BIG(DISTINCT ${filtered})`
-        : name === "COUNT" || name === "COUNT_BIG"
-          ? `COUNT_BIG(${star && !conditions.length ? "*" : filtered})`
-          : `${name}(${name === "AVG" ? `CAST(${filtered} AS FLOAT)` : name === "SUM" ? `CAST(${filtered} AS DECIMAL(38, 10))` : filtered})`;
-    if (!this.correlated) return aggregate;
-    const where = this.scope(context);
-    return `(SELECT ${aggregate} FROM [__df_base] AS [b]${where.length ? ` WHERE ${where.join(" AND ")}` : ""})`;
-  }
-
-  private scope(context: RenderContext): string[] {
-    const where = this.queryFilters
-      .filter(
-        (filter) =>
-          !context.ignored.has(filter.resolved.column.id) &&
-          !(
-            context.window &&
-            filter.resolved.table.id === this.builder.model.date?.tableId
-          ),
-      )
-      .map((filter) => this.builder.filter(filter, "b"));
-    for (const group of this.groups) {
-      if (
-        context.ignored.has(group.column.id) ||
-        (context.window && group.table.id === this.builder.model.date?.tableId)
-      )
-        continue;
-      const inner = this.builder.column(group, "b");
-      const outer = `[g].${quote(this.groupAliases.get(group.column.id)!)}`;
-      where.push(
-        `(${inner} = ${outer} OR (${inner} IS NULL AND ${outer} IS NULL))`,
-      );
-    }
-    if (context.window) {
-      const date = this.builder.model.date!;
-      const table = this.builder.model.tables.find(
-        (candidate) => candidate.id === date.tableId,
-      )!;
-      const column = table.columns.find(
-        (candidate) => candidate.id === date.dateColumnId,
-      )!;
-      where.push(
-        `${this.builder.column({ table, column }, "b")} >= ${context.window.start}`,
-        `${this.builder.column({ table, column }, "b")} <= ${context.window.end}`,
-      );
-    }
-    return where;
-  }
-
-  private timeContext(
-    name: string,
-    node: ResolvedExpr & { kind: "call" },
-    context: RenderContext,
-  ): RenderContext {
-    let start = context.window?.start ?? "[g].[__df_start]";
-    let end = context.window?.end ?? "[g].[__df_end]";
-    if (!context.window && (context.filters.length || context.ignored.size)) {
-      const date = this.builder.model.date!;
-      const table = this.builder.model.tables.find(
-        (candidate) => candidate.id === date.tableId,
-      )!;
-      const column = table.columns.find(
-        (candidate) => candidate.id === date.dateColumnId,
-      )!;
-      const scope = [
-        ...this.scope(context),
-        ...context.filters.map((filter) =>
-          this.predicate(filter, context, "b"),
-        ),
-      ];
-      const from = `FROM [__df_base] AS [b]${scope.length ? ` WHERE ${scope.join(" AND ")}` : ""}`;
-      start = `(SELECT MIN(${this.builder.column({ table, column }, "b")}) ${from})`;
-      end = `(SELECT MAX(${this.builder.column({ table, column }, "b")}) ${from})`;
-    }
-    const month = `DATEFROMPARTS(YEAR(${end}), MONTH(${end}), 1)`;
-    const quarter = `DATEFROMPARTS(YEAR(${end}), ((MONTH(${end}) - 1) / 3) * 3 + 1, 1)`;
-    const year = `DATEFROMPARTS(YEAR(${end}), 1, 1)`;
-    let window = { start, end };
-    if (name === "YTD") window = { start: year, end };
-    else if (name === "MTD") window = { start: month, end };
-    else if (name === "QTD") window = { start: quarter, end };
-    else if (name === "SAMEPERIODLASTYEAR")
-      window = {
-        start: `DATEADD(YEAR, -1, ${start})`,
-        end: `DATEADD(YEAR, -1, ${end})`,
-      };
-    else {
-      const period = node.args[1];
-      if (period.kind !== "period")
-        throw new QueryCompileError(
-          "PREVIOUSPERIOD requires MONTH, QUARTER, or YEAR.",
-        );
-      const beginning =
-        period.value === "MONTH"
-          ? month
-          : period.value === "QUARTER"
-            ? quarter
-            : year;
-      window = {
-        start: `DATEADD(${period.value}, -1, ${beginning})`,
-        end: `DATEADD(DAY, -1, ${beginning})`,
-      };
-    }
-    if (window.start.length > 262_144 || window.end.length > 262_144)
-      throw new QueryCompileError(
-        "The compiled time expression is too complex (maximum 256 KiB).",
-      );
-    const dateTable = this.builder.model.tables.find(
-      (table) => table.id === this.builder.model.date?.tableId,
-    )!;
-    const dateColumns = new Set(dateTable.columns.map((column) => column.id));
-    return {
-      ...context,
-      filters: context.filters.filter(
-        (filter) =>
-          ![...filterColumns(filter)].some((id) => dateColumns.has(id)),
-      ),
-      window,
-      windowKey: JSON.stringify([
-        name,
-        node.args[1]?.kind === "period" ? node.args[1].value : null,
-        contextKey(context),
-      ]),
-    };
-  }
-
-  render(
-    node: ResolvedExpr,
-    context: RenderContext,
-    columnAlias?: string,
-    predicate = false,
-  ): string {
-    const sql = this.renderNode(node, context, columnAlias, predicate);
-    if (sql.length > 262_144)
-      throw new QueryCompileError(
-        "The compiled measure is too complex (maximum 256 KiB of SQL).",
-      );
-    return sql;
-  }
-
-  private renderNode(
-    node: ResolvedExpr,
-    context: RenderContext,
-    columnAlias?: string,
-    predicate = false,
-  ): string {
-    if (!predicate && isPredicate(node)) {
-      const condition = this.render(node, context, columnAlias, true);
-      return `(CASE WHEN ${condition} THEN CAST(1 AS BIT) WHEN NOT (${condition}) THEN CAST(0 AS BIT) ELSE CAST(NULL AS BIT) END)`;
-    }
-    switch (node.kind) {
-      case "literal":
-        return this.builder.param(node.value);
-      case "column":
-        return this.builder.column(node, columnAlias);
-      case "measure":
-        if (this.shared) {
-          const reference = this.shared.scalar(node.measure.id, context, () =>
-            this.render(node.expression, context, columnAlias),
-          );
-          return predicate ? `(${reference} = CAST(1 AS BIT))` : reference;
-        }
-        return this.render(node.expression, context, columnAlias, predicate);
-      case "star":
-        return "*";
-      case "period":
-        throw new QueryCompileError(
-          "A time period can only be used by PREVIOUSPERIOD.",
-        );
-      case "unary":
-        return node.op === "NOT"
-          ? `(NOT ${this.predicate(node.operand, context, columnAlias)})`
-          : `(${node.op}${this.render(node.operand, context, columnAlias)})`;
-      case "in": {
-        const left = this.render(node.expression, context, columnAlias);
-        const nonNull = node.values.filter(
-          (value) => !(value.kind === "literal" && value.value === null),
-        );
-        const hasNull = nonNull.length !== node.values.length;
-        const list = nonNull.length
-          ? `${left} ${node.negated ? "NOT IN" : "IN"} (${nonNull.map((value) => this.render(value, context, columnAlias)).join(", ")})`
-          : "";
-        const nullTest = hasNull
-          ? `${left} IS ${node.negated ? "NOT " : ""}NULL`
-          : "";
-        return list && nullTest
-          ? `(${list} ${node.negated ? "AND" : "OR"} ${nullTest})`
-          : `(${list || nullTest || (node.negated ? "1 = 1" : "1 = 0")})`;
-      }
-      case "binary": {
-        if (node.op === "AND" || node.op === "OR")
-          return `(${this.predicate(node.left, context, columnAlias)} ${node.op} ${this.predicate(node.right, context, columnAlias)})`;
-        const left = this.render(node.left, context, columnAlias);
-        const right = this.render(node.right, context, columnAlias);
-        if (
-          (node.op === "=" || node.op === "<>" || node.op === "!=") &&
-          ((node.left.kind === "literal" && node.left.value === null) ||
-            (node.right.kind === "literal" && node.right.value === null))
-        ) {
-          const other =
-            node.left.kind === "literal" && node.left.value === null
-              ? right
-              : left;
-          return `(${other} IS ${node.op === "=" ? "" : "NOT "}NULL)`;
-        }
-        if (node.op === "/")
-          return `(CAST(${left} AS DECIMAL(38, 10)) / NULLIF(${right}, 0))`;
-        if (node.op === "%") return `(${left} % NULLIF(${right}, 0))`;
-        const allowed: Record<string, string> = {
-          "+": "+",
-          "-": "-",
-          "*": "*",
-          "=": "=",
-          "!=": "<>",
-          "<>": "<>",
-          "<": "<",
-          ">": ">",
-          "<=": "<=",
-          ">=": ">=",
-        };
-        const operator = allowed[node.op];
-        if (!operator)
-          throw new QueryCompileError("Unsupported expression operator.");
-        return `(${left} ${operator} ${right})`;
-      }
-      case "call": {
-        if (aggregates.has(node.name))
-          return this.aggregate(node.name, node.args[0], context);
-        if (node.name === "CALCULATE") {
-          const next = calculateContext(context, node.args.slice(1));
-          return this.render(node.args[0], next, columnAlias);
-        }
-        if (timeFunctions.has(node.name))
-          return this.render(
-            node.args[0],
-            this.timeContext(node.name, node, context),
-            columnAlias,
-          );
-        if (node.name === "DIVIDE") {
-          const numerator = this.render(node.args[0], context, columnAlias);
-          const denominator = this.render(node.args[1], context, columnAlias);
-          return `(CASE WHEN ${denominator} IS NULL OR ${denominator} = 0 THEN ${node.args[2] ? this.render(node.args[2], context, columnAlias) : "NULL"} ELSE CAST(${numerator} AS FLOAT) / NULLIF(${denominator}, 0) END)`;
-        }
-        if (node.name === "IF")
-          return `(CASE WHEN ${this.predicate(node.args[0], context, columnAlias)} THEN ${this.render(node.args[1], context, columnAlias)} ELSE ${this.render(node.args[2], context, columnAlias)} END)`;
-        if (node.name === "ABS")
-          return `ABS(${this.render(node.args[0], context, columnAlias)})`;
-        if (node.name === "ROUND")
-          return `ROUND(${this.render(node.args[0], context, columnAlias)}, ${this.render(node.args[1], context, columnAlias)})`;
-        throw new QueryCompileError(
-          `Unsupported expression function: ${node.name}.`,
-        );
-      }
-    }
-  }
-}
-
 function compileCheckedQuery(
   model: SemanticModel,
   input: unknown,
@@ -971,51 +358,45 @@ function compileCheckedQuery(
   const checked = measures.map((measure) =>
     resolver.resolveMeasure(measure.id),
   );
-  const expressions = checked.map((expression) => expression.ast);
   const builder = new SqlBuilder(model, query.hideUnknown);
   groups.forEach((ref) => builder.addColumn(ref));
   filters.forEach((filter) => builder.addColumn(filter.resolved));
-  expressions.forEach((expression) => builder.addExpression(expression));
+  checked.forEach((expression) => builder.addExpression(expression.ast));
+  const factKey = builder.fact.columns.find(
+    (column) => column.id === builder.fact.keyColumnId,
+  );
+  if (!factKey)
+    throw new QueryCompileError("The semantic fact has no surrogate key.");
+  builder.addColumn({ table: builder.fact, column: factKey });
+  builder.includeSurrogateKeys();
   builder.prepare();
   let usesTime = false;
-  const groupAliases = new Map(
-    groups.map((ref, index) => [ref.column.id, `a${index}`]),
-  );
-  const measureAliases = new Map(
-    measures.map((measure, index) => [measure.id, `m${index}`]),
-  );
-  expressions.forEach((expression) =>
-    walk(expression, (node) => {
+  checked.forEach((expression) =>
+    walk(expression.ast, (node) => {
       if (node.kind === "call" && timeFunctions.has(node.name)) usesTime = true;
     }),
   );
-  const singleScan = supportsSingleScan(expressions, groups);
-  const shared = new SharedAggregatePlan(
+  const plan = new MaterializedPlan(
     builder,
     groups,
     filters,
-    groupAliases,
-    singleScan,
+    (message) => new QueryCompileError(message),
+    usesTime,
   );
-  const renderer = new ExpressionSql(
-    builder,
-    groups,
-    filters,
-    !singleScan,
-    groupAliases,
-    shared,
+  const values = checked.map((expression, index) =>
+    plan.scalar(measures[index].id, expression.ast),
   );
-  const context: RenderContext = { filters: [], ignored: new Set() };
   const { from, unknown } = builder.from();
+  const batch = plan.statements(from, unknown);
   const columns: QueryResultColumn[] = [
-    ...groups.map(({ column }) => ({
-      key: groupAliases.get(column.id)!,
+    ...groups.map(({ column }, index) => ({
+      key: `a${index}`,
       name: column.name,
       type: column.type,
       role: "attribute" as const,
     })),
     ...measures.map((measure, index) => ({
-      key: measureAliases.get(measure.id)!,
+      key: `m${index}`,
       name: measure.name,
       type: (["number", "string", "boolean", "date"].includes(
         checked[index].type,
@@ -1025,109 +406,76 @@ function compileCheckedQuery(
       role: "measure" as const,
     })),
   ];
-  if (new Set(columns.map((column) => column.key)).size !== columns.length)
-    throw new QueryCompileError(
-      "Semantic column and measure IDs must be unique.",
-    );
-  const ctes: string[] = [];
-  // Render once to build a dependency-ordered aggregate/scalar plan. Repeated
-  // measure references read projected columns rather than pasting SQL again.
-  const values = expressions.map((expression, index) =>
-    shared.scalar(measures[index].id, context, () =>
-      renderer.render(expression, context),
-    ),
+  const groupAlias = new Map(
+    groups.map((group, index) => [group.column.id, `a${index}`]),
   );
-  if (!singleScan) {
-    ctes.push(
-      `[__df_base] AS (\n  SELECT ${builder.baseProjection()}\n  FROM ${from}${unknown.length ? `\n  WHERE ${unknown.join(" AND ")}` : ""}\n)`,
-    );
-    const groupProjection = groups.map(
-      (ref) =>
-        `${builder.column(ref, "b")} AS ${quote(groupAliases.get(ref.column.id)!)}`,
-    );
-    if (usesTime) {
-      const date = model.date!;
-      const table = model.tables.find(
-        (candidate) => candidate.id === date.tableId,
-      )!;
-      const column = table.columns.find(
-        (candidate) => candidate.id === date.dateColumnId,
-      )!;
-      groupProjection.push(
-        `MIN(${builder.column({ table, column }, "b")}) AS [__df_start]`,
-        `MAX(${builder.column({ table, column }, "b")}) AS [__df_end]`,
-      );
-    } else groupProjection.push("COUNT_BIG(*) AS [__df_group_count]");
-    const where = filters.map((filter) => builder.filter(filter, "b"));
-    ctes.push(
-      `[__df_groups] AS (\n  SELECT ${groupProjection.join(", ")}\n  FROM [__df_base] AS [b]${where.length ? `\n  WHERE ${where.join(" AND ")}` : ""}${groups.length ? `\n  GROUP BY ${groups.map((ref) => builder.column(ref, "b")).join(", ")}` : ""}\n)`,
-    );
-    ctes.push(
-      `[__df_aggregates] AS (\n  SELECT [g].*${shared.aggregates.length ? ",\n    " + shared.aggregates.map((slot) => `${slot.sql} AS ${quote(slot.alias)}`).join(",\n    ") : ""}\n  FROM [__df_groups] AS [g]\n)`,
-    );
-  } else {
-    ctes.push(shared.groupedCte(from, unknown));
-  }
-  const scalarSource = shared.projectionCtes(ctes, "__df_aggregates");
-  ctes.push(
-    `[__df_result] AS (\n  SELECT ${[
-      ...groups.map((ref) => `[s].${quote(groupAliases.get(ref.column.id)!)}`),
-      ...values.map(
-        (value, index) =>
-          `${value} AS ${quote(measureAliases.get(measures[index].id)!)}`,
-      ),
-    ].join(
-      ",\n    ",
-    )}\n  FROM ${quote(scalarSource)} AS [s]${singleScan && groups.length ? "\n  WHERE [s].[__df_group_count] > 0" : ""}\n)`,
+  const measureAlias = new Map(
+    measures.map((measure, index) => [measure.id, `m${index}`]),
   );
-  let resultName = "__df_result";
-  if (pivotColumns.length) {
-    ctes.push(
-      `[__df_ranked] AS (\n  SELECT [r].*, DENSE_RANK() OVER (ORDER BY ${pivotColumns.map((ref) => `[r].${quote(groupAliases.get(ref.column.id)!)}`).join(", ")}) AS [__df_pivot_rank]\n  FROM [__df_result] AS [r]\n)`,
-    );
-    ctes.push(
-      "[__df_pivot] AS (\n  SELECT [r].*, MAX([r].[__df_pivot_rank]) OVER () AS [__df_pivot_total]\n  FROM [__df_ranked] AS [r]\n)",
-    );
-    resultName = "__df_pivot";
-  }
-  const order: string[] = [];
   const resolveOrder = (ref: string | AttributeRef): string => {
     if (typeof ref === "string") {
-      const exact = measureAliases.get(ref) ?? groupAliases.get(ref);
-      if (exact) return exact;
-      const named = columns.filter((column) => fold(column.name) === fold(ref));
-      if (named.length === 1) return named[0].key;
+      const found = groupAlias.get(ref) ?? measureAlias.get(ref);
+      if (found) return found;
+      const matches = columns.filter(
+        (column) => fold(column.name) === fold(ref),
+      );
+      if (matches.length === 1) return matches[0].key;
       throw new QueryCompileError(
         "Order by a selected measure or grouping attribute.",
       );
     }
-    const resolved = resolveAttribute(model, ref);
-    if (!groups.some((group) => group.column.id === resolved.column.id))
+    const found = resolveAttribute(model, ref);
+    const alias = groupAlias.get(found.column.id);
+    if (!alias)
       throw new QueryCompileError(
         "Order attributes must also be selected as grouping attributes.",
       );
-    return groupAliases.get(resolved.column.id)!;
+    return alias;
   };
+  const order: string[] = [];
   if (query.topN) {
-    const topMeasure = resolveMeasure(model, query.topN.measure);
-    if (!measures.some((measure) => measure.id === topMeasure.id))
+    const measure = resolveMeasure(model, query.topN.measure);
+    const alias = measureAlias.get(measure.id);
+    if (!alias)
       throw new QueryCompileError("Select the Top N measure in the query.");
-    order.push(`[r].${quote(measureAliases.get(topMeasure.id)!)} DESC`);
+    order.push(`[r].${quote(alias)} DESC`);
   }
-  for (const entry of query.orderBy)
+  query.orderBy.forEach((entry) =>
     order.push(
       `[r].${quote(resolveOrder(entry.ref))} ${entry.dir === "desc" ? "DESC" : "ASC"}`,
-    );
+    ),
+  );
   if (!order.length)
-    for (const group of groups)
-      order.push(`[r].${quote(groupAliases.get(group.column.id)!)} ASC`);
+    groups.forEach((_, index) => order.push(`[r].[a${index}] ASC`));
   const limit = query.topN ? Math.min(query.limit, query.topN.n) : query.limit;
   builder.params.push({ name: "__df_limit", value: limit + 1, type: "number" });
+  const projections = [
+    ...groups.map((_, index) => `[g].[a${index}]`),
+    ...values.map((value, index) => `${value} AS [m${index}]`),
+  ];
+  const resultSource = `FROM ${quote(batch.source)} AS [g]\n${batch.joins.join("\n")}\n${batch.applies.join("\n")}${groups.length ? "\nWHERE [g].[__df_group_count] > 0" : ""}`;
+  batch.statements.push(
+    `SELECT ${projections.join(",\n  ")}${pivotColumns.length ? `, DENSE_RANK() OVER (ORDER BY ${pivotColumns.map((_, index) => `[g].[a${rows.length + index}]`).join(", ")}) AS [__df_pivot_rank]` : ""}\nINTO [#df_result]\n${resultSource};`,
+  );
+  batch.tempTables.push("#df_result");
+  let finalSource = "#df_result";
+  if (pivotColumns.length) {
+    batch.statements.push(
+      "SELECT [r].*, MAX([r].[__df_pivot_rank]) OVER () AS [__df_pivot_total] INTO [#df_pivot] FROM [#df_result] AS [r];",
+    );
+    batch.tempTables.push("#df_pivot");
+    finalSource = "#df_pivot";
+  }
+  const finalSelect = `SELECT TOP (@__df_limit) ${[...columns.map((column) => `[r].${quote(column.key)}`), ...(pivotColumns.length ? ["[r].[__df_pivot_total]"] : [])].join(", ")}\nFROM ${quote(finalSource)} AS [r]${pivotColumns.length ? "\nWHERE [r].[__df_pivot_rank] <= 50" : ""}${order.length ? `\nORDER BY ${order.join(", ")}` : ""};`;
+  const sql = materializedBatch(
+    batch.statements,
+    finalSelect,
+    batch.tempTables,
+  );
   if (builder.params.length > 2_000)
     throw new QueryCompileError(
       "The query uses too many parameter values. Reduce the number of filters or selected measures.",
     );
-  const sql = `WITH ${ctes.join(",\n")}\nSELECT TOP (@__df_limit) ${[...columns.map((column) => `[r].${quote(column.key)}`), ...(pivotColumns.length ? ["[r].[__df_pivot_total]"] : [])].join(", ")}\nFROM ${quote(resultName)} AS [r]${pivotColumns.length ? "\nWHERE [r].[__df_pivot_rank] <= 50" : ""}${order.length ? `\nORDER BY ${order.join(", ")}` : ""};`;
   if (sql.length > 1_048_576)
     throw new QueryCompileError(
       "The compiled query is too complex (maximum 1 MiB of SQL). Choose fewer or simpler measures.",
@@ -1137,16 +485,15 @@ function compileCheckedQuery(
     params: builder.params,
     columns,
     limit,
+    materialized: true,
     ...(pivotColumns.length
       ? {
           pivot: {
-            rowKeys: rows.map((ref) => groupAliases.get(ref.column.id)!),
-            columnKeys: pivotColumns.map((ref) =>
-              groupAliases.get(ref.column.id)!,
+            rowKeys: rows.map((_, index) => `a${index}`),
+            columnKeys: pivotColumns.map(
+              (_, index) => `a${rows.length + index}`,
             ),
-            measureKeys: measures.map((measure) =>
-              measureAliases.get(measure.id)!,
-            ),
+            measureKeys: measures.map((_, index) => `m${index}`),
           },
         }
       : {}),
@@ -1174,12 +521,18 @@ export function compileDistinctValues(
   const resolved = resolveAttribute(model, attribute);
   const builder = new SqlBuilder(model, hideUnknown);
   builder.addColumn(resolved);
+  builder.includeSurrogateKeys();
   builder.prepare();
   const { from, unknown } = builder.from();
-  const column = builder.column(resolved);
+  const statements = [
+    `SELECT ${builder.baseProjection()}, DENSE_RANK() OVER (ORDER BY ${builder.column(resolved)}) AS [__df_k0] INTO [#df_base] FROM ${from}${unknown.length ? ` WHERE ${unknown.join(" AND ")}` : ""};`,
+    "CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);",
+  ];
+  const column = builder.column(resolved, "b");
+  const select = `SELECT TOP (@__df_limit) ${column} AS [value], COUNT_BIG(*) AS [count]\nFROM [#df_base] AS [b]\nGROUP BY ${column}\nORDER BY [count] DESC, [value] ASC;`;
   return {
-    sql: `SELECT TOP (@__df_limit) ${column} AS [value], COUNT_BIG(*) AS [count]\nFROM ${from}${unknown.length ? `\nWHERE ${unknown.join(" AND ")}` : ""}\nGROUP BY ${column}\nORDER BY [count] DESC, [value] ASC;`,
-    params: [{ name: "__df_limit", value: 1_001, type: "number" }],
+    sql: materializedBatch(statements, select, ["#df_base"]),
+    params: [{ name: "__df_limit", value: 1001, type: "number" }],
     columns: [
       {
         key: "value",
@@ -1189,6 +542,7 @@ export function compileDistinctValues(
       },
       { key: "count", name: "Count", type: "number", role: "measure" },
     ],
-    limit: 1_000,
+    limit: 1000,
+    materialized: true,
   };
 }

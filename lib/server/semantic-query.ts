@@ -155,6 +155,7 @@ async function executeCached(
   build: (model: SemanticModel) => CompiledQuery,
   signal?: AbortSignal,
   timing: QueryTimingContext = startQueryTiming(),
+  diagnostics = false,
 ): Promise<QueryResult> {
   let password = "";
   try {
@@ -185,7 +186,7 @@ async function executeCached(
       cacheInput,
       connectionVersion,
     );
-    const cached = semanticCache.get(key);
+    const cached = diagnostics ? undefined : semanticCache.get(key);
     addQueryPhase(timing, "cacheLookupMs", cacheStart);
     if (cached) {
       timing.sql = cached.sql;
@@ -203,6 +204,7 @@ async function executeCached(
     let compiled: CompiledQuery;
     try {
       compiled = build(model);
+      if (diagnostics) compiled = { ...compiled, diagnostics: true };
     } catch (error) {
       compilationError(error);
     } finally {
@@ -220,6 +222,10 @@ async function executeCached(
           "connectMs",
           "sendToFirstRowMs",
           "fetchMs",
+          "sqlCompileMs",
+          "sqlExecuteMs",
+          "sqlCompileCpuMs",
+          "sqlExecuteCpuMs",
         ] as const)
           if (typeof phases[phase] === "number")
             timing.timings[phase] = Math.max(0, phases[phase]!);
@@ -229,6 +235,7 @@ async function executeCached(
     // Check cheap revisions instead of deriving/parsing the complete semantic model twice per query.
     const current = await requireSemanticReady(projectId);
     if (
+      !diagnostics &&
       current.run.id === ready.run.id &&
       readSemanticStamp(projectId) === stamp &&
       (readPublicConnection().updatedAt ?? "") === connectionVersion
@@ -274,6 +281,7 @@ export async function runSemanticQuery(
     (model) => compileQuery(model, normalized),
     signal,
     timing,
+    normalized.diagnostics === true,
   );
 }
 

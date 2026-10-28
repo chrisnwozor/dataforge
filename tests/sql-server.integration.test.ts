@@ -17,7 +17,11 @@ import type { CreateProjectResponse } from "@/lib/server/uploads";
 import { getSemanticModel, saveSemanticModel } from "@/lib/server/semantic";
 import { runSemanticQuery } from "@/lib/server/semantic-query";
 import { closeQueryPools } from "@/lib/server/query-transport";
-import { compileQuery } from "@/lib/semantic/query/compile";
+import {
+  expectedSuperstoreResults,
+  readSuperstoreRows,
+  type SuperstoreAxis,
+} from "./fixtures/superstore-results";
 import { invalidateSemanticCache } from "@/lib/semantic/query/cache";
 import { quoteIdentifier } from "@/lib/sql/helpers";
 import type {
@@ -168,6 +172,16 @@ it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
           [
             "Sales % of Grand Total",
             "DIVIDE([Sales], CALCULATE([Sales], ALL(dim_product[product]), ALL(dim_product[category])))",
+            "percent",
+          ],
+          [
+            "Sales % of All Years",
+            "DIVIDE([Sales], CALCULATE([Sales], ALL(dim_date[Year])))",
+            "percent",
+          ],
+          [
+            "Sales % of Calendar Grand Total",
+            "DIVIDE([Sales], CALCULATE([Sales], ALL(dim_date[Year]), ALL(dim_date[Month])))",
             "percent",
           ],
         ] as const;
@@ -344,55 +358,6 @@ it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
                 );
             }
           }
-
-          // SHOWPLAN_XML reports the optimizer's physical plan without executing it.
-          // Check baseline and ratio together: adding a reference cannot add a fact scan.
-          if (count <= 2) {
-            const compiled = compileQuery(semantic, {
-              measures: names.map((name) => measure(name).id),
-              rows: [ref(category)],
-            });
-            // A batch keeps this connection-level diagnostic outside sp_executesql's scope.
-            await pool.request().batch("SET SHOWPLAN_XML ON;");
-            try {
-              const request = pool.request();
-              for (const parameter of compiled.params) {
-                const value = parameter.value;
-                request.input(
-                  parameter.name,
-                  parameter.name === "__df_limit"
-                    ? sql.Int
-                    : typeof value === "number"
-                      ? sql.Float
-                      : typeof value === "boolean"
-                        ? sql.Bit
-                        : sql.NVarChar(sql.MAX),
-                  value,
-                );
-              }
-              const plan = await request.query(compiled.sql);
-              const xml = plan.recordset
-                .flatMap((row) => Object.values(row))
-                .find(
-                  (value) =>
-                    typeof value === "string" && value.includes("ShowPlanXML"),
-                );
-              expect(typeof xml).toBe("string");
-              const scans = (
-                String(xml).match(/<Object\b[^>]*\/>/g) ?? []
-              ).filter(
-                (object) =>
-                  object.includes(`Table="[${fact.sqlName}]"`) &&
-                  object.includes(`Schema="[${fact.schema}]"`),
-              );
-              expect(
-                scans,
-                `${names.join(" + ")} should have one physical fact access`,
-              ).toHaveLength(1);
-            } finally {
-              await pool.request().batch("SET SHOWPLAN_XML OFF;");
-            }
-          }
         }
 
         // The reported Product + Category combination must remain below one
@@ -485,6 +450,138 @@ it.skipIf(process.env.DATAFORGE_SQL_INTEGRATION !== "1")(
           if (expected === null) expect(row[yoyKey]).toBeNull();
           else expect(Number(row[yoyKey])).toBeCloseTo(Number(expected), 5);
         }
+
+        // Compare the live batch outputs to independent sample arithmetic. The
+        // local calendar suite snapshots these same expected numeric records.
+        const observations = readSuperstoreRows();
+        const numericMeasures = [
+          "Sales",
+          "Profit Margin %",
+          "Avg Order Value",
+          "Sales % of Total",
+          "Sales % of Category",
+          "Sales % of Grand Total",
+          "Sales % of All Years",
+          "Sales % of Calendar Grand Total",
+          "Sales YTD",
+          "Sales LY",
+          "Sales YoY %",
+        ];
+        for (const axes of [
+          ["Year"],
+          ["Month"],
+          ["Year", "Month"],
+          ["Product", "Category"],
+        ] as const) {
+          invalidateSemanticCache(project.id);
+          const actual = await runSemanticQuery(project.id, {
+            measures: numericMeasures.map((name) => measure(name).id),
+            rows: axes.map((axis) => ref(column(axis))),
+          });
+          expect(actual.fromCache).toBe(false);
+          const expected = expectedSuperstoreResults(observations, axes);
+          expect(actual.rows).toHaveLength(expected.length);
+          const keyFor = (name: string) =>
+            actual.columns.find((value) => value.name === name)!.key;
+          for (const row of actual.rows) {
+            const match = expected.find((value) =>
+              axes.every((axis) => value[axis] === row[keyFor(axis)]),
+            );
+            expect(
+              match,
+              `Expected a matching sample group for ${JSON.stringify(row)}`,
+            ).toBeDefined();
+            for (const name of numericMeasures) {
+              const value = row[keyFor(name)];
+              if (match![name] === null) expect(value, name).toBeNull();
+              else
+                expect(Number(value), `${axes.join("/")}: ${name}`).toBeCloseTo(
+                  Number(match![name]),
+                  name.includes("%") ? 7 : 4,
+                );
+            }
+          }
+        }
+
+        // Warm, uncached production acceptance budgets; diagnostics is measured
+        // separately because its SET requests intentionally add round trips.
+        const acceptance: {
+          label: string;
+          names: string[];
+          axes: SuperstoreAxis[];
+          budget: number;
+        }[] = [
+          {
+            label: "Sales by Year",
+            names: ["Sales"],
+            axes: ["Year"],
+            budget: 500,
+          },
+          {
+            label: "Sales YoY % by Year",
+            names: ["Sales YoY %"],
+            axes: ["Year"],
+            budget: 500,
+          },
+          {
+            label: "Sales % of Total by Year",
+            names: ["Sales % of All Years"],
+            axes: ["Year"],
+            budget: 500,
+          },
+          {
+            label: "Five measures by Product/Category",
+            names: [
+              "Sales",
+              "Profit Margin %",
+              "Avg Order Value",
+              "Sales % of Category",
+              "Sales % of Grand Total",
+            ],
+            axes: ["Product", "Category"],
+            budget: 1_000,
+          },
+          {
+            label: "Sales YoY % by Year/Month",
+            names: ["Sales YoY %"],
+            axes: ["Year", "Month"],
+            budget: 1_000,
+          },
+        ];
+        for (const target of acceptance) {
+          const input = {
+            measures: target.names.map((name) => measure(name).id),
+            rows: target.axes.map((axis) => ref(column(axis))),
+          };
+          await runSemanticQuery(project.id, input); // warm SQL plans/connection
+          invalidateSemanticCache(project.id);
+          const started = performance.now();
+          const result = await runSemanticQuery(project.id, input);
+          expect(result.fromCache, target.label).toBe(false);
+          expect(performance.now() - started, target.label).toBeLessThan(
+            target.budget,
+          );
+          expect(result.timings!.totalMs, target.label).toBeLessThan(
+            target.budget,
+          );
+          expect(result.timings!.connectMs, target.label).toBe(0);
+        }
+        const diagnosticInput = {
+          measures: [measure("Sales YoY %").id],
+          rows: [ref(year)],
+        };
+        await runSemanticQuery(project.id, diagnosticInput);
+        const diagnostic = await runSemanticQuery(project.id, {
+          ...diagnosticInput,
+          diagnostics: true,
+        });
+        expect(diagnostic.fromCache).toBe(false);
+        expect(diagnostic.timings!.sqlExecuteMs).toBeGreaterThanOrEqual(0);
+        if (diagnostic.timings!.sqlCompileMs !== undefined)
+          expect(diagnostic.timings!.sqlCompileMs).toBeGreaterThanOrEqual(0);
+        expect(
+          (await runSemanticQuery(project.id, diagnosticInput)).fromCache,
+        ).toBe(true);
 
         // A committed temporary Unknown fact exercises the option through separate pinned sessions.
         const factKey = fact.columns.find(
