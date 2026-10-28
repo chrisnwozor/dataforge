@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { compileQuery } from "@/lib/semantic/query/compile";
 import { semanticQuerySchema } from "@/lib/semantic/query/schema";
-import { assertMaterializedShape } from "./helpers/materialized-shape";
+import { assertFastShape, assertMaterializedShape } from "./helpers/materialized-shape";
 import type { SemanticModel } from "@/lib/semantic/types";
 import {
   categoryReference,
@@ -163,7 +163,10 @@ describe("Superstore compiler performance", () => {
         rows: [categoryReference(model)],
       });
       expect(expandedFactSources(compiled.sql)).toBe(1);
-      assertMaterializedShape(compiled.sql);
+      if (name === "Sales" || name === "Sales + Profit Margin %") {
+        expect(compiled.materialized).not.toBe(true);
+        assertFastShape(compiled.sql);
+      } else assertMaterializedShape(compiled.sql);
     },
   );
 
@@ -239,7 +242,7 @@ describe("Superstore compiler performance", () => {
   });
 });
 
-describe("materialized time-query plan shape", () => {
+describe("simple and materialized time-query plan shape", () => {
   const cases = [
     ["Sales", ["Year"]],
     ["Sales YTD", ["Year"]],
@@ -274,8 +277,11 @@ describe("materialized time-query plan shape", () => {
       };
     });
     const compiled = compileQuery(semantic, { measures: [measure], rows });
-    assertMaterializedShape(compiled.sql);
-    expect(compiled.sql.match(/GROUP BY GROUPING SETS/g)).toHaveLength(1);
+    if (measure === "Sales") assertFastShape(compiled.sql);
+    else {
+      assertMaterializedShape(compiled.sql);
+      expect(compiled.sql.match(/GROUP BY GROUPING SETS/g)).toHaveLength(1);
+    }
     expect(compiled.sql).not.toContain("__df_scalar_");
   });
 });

@@ -24,6 +24,7 @@
 .values input { accent-color:var(--text); width:14px; height:14px; }
 .values small { color:var(--muted); white-space:nowrap; font-size:10px; }
 .note { font-size:10px; color:var(--muted); margin-top:8px; }
+.retry { font-size:11px; text-decoration:underline; text-underline-offset:3px; margin-top:8px; }
 .footer { display:flex; gap:8px; justify-content:flex-end; border-top:1px solid var(--line); padding-top:12px; margin-top:12px; }
 .root .footer button,.popover .footer button { border:1px solid var(--line-strong); }
 .root .footer :global(.button-primary),.popover .footer :global(.button-primary) { background:var(--text); color:var(--inverse); }

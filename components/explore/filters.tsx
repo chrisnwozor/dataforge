@@ -8,30 +8,8 @@ import type { AttributeRef, QueryFilter, QueryResult, QueryValue } from "@/lib/s
 import { attributeKey } from "@/lib/explore/config";
 import { formatAttribute } from "@/lib/explore/format";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { loadExploreValues } from "@/lib/explore/values";
 import styles from "./filters.module.css";
-
-const valueCache = new Map<string, { expires: number; promise: Promise<QueryResult> }>();
-function distinctValues(projectId: string, attribute: AttributeRef, version = ""): Promise<QueryResult> {
-  const key = `${projectId}:${version}:${attributeKey(attribute)}`;
-  const cached = valueCache.get(key);
-  let promise = cached && cached.expires > Date.now() ? cached.promise : undefined;
-  if (!promise) {
-    promise = fetch(`/api/projects/${encodeURIComponent(projectId)}/query/values?${new URLSearchParams({ attribute: JSON.stringify(attribute) })}`, { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || "Values could not be loaded. Try again.");
-        return body as QueryResult;
-      }).catch((error: unknown) => { valueCache.delete(key); throw error; });
-    if (valueCache.size >= 64) valueCache.delete(valueCache.keys().next().value!);
-    valueCache.set(key, { expires: Date.now() + 60_000, promise });
-  }
-  return promise;
-}
-
-/** Warm only the first few slicers; this shares the exact values API used on open. */
-export function prefetchExploreValues(projectId: string, refs: AttributeRef[], version = ""): void {
-  for (const ref of refs.slice(0, 3)) void distinctValues(projectId, ref, version).catch(() => {});
-}
 
 type TopN = { measure: string; n: number };
 interface Props {
@@ -102,9 +80,12 @@ function Slicer({ projectId, version, triggerId, attribute, column, filters, onA
   onApply: (filters: QueryFilter[]) => void; onClose: () => void;
 }) {
   const applied = filters.filter((filter) => attributeKey(filter.attribute) === attributeKey(attribute));
-  const [result, setResult] = useState<QueryResult | null>(null);
-  const [error, setError] = useState("");
+  const [response, setResponse] = useState<{ search: string; result: QueryResult } | null>(null);
+  const [failure, setFailure] = useState<{ search: string; message: string } | null>(null);
   const [search, setSearch] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const [elapsed, setElapsed] = useState({ search: "", ms: 0 });
+  const cancelValues = useRef<() => void>(() => {});
   const [selected, setSelected] = useState<QueryValue[] | null>(() => {
     const include = applied.find((filter) => filter.op === "in");
     const equals = applied.find((filter) => filter.op === "eq");
@@ -119,10 +100,32 @@ function Slicer({ projectId, version, triggerId, attribute, column, filters, onA
   const [max, setMax] = useState(String(applied.find((filter) => filter.op === "lte")?.value ?? ""));
   const [range, setRange] = useState(applied.some((filter) => filter.op === "gte" || filter.op === "lte"));
   const dialog = useRef<HTMLDivElement>(null);
+  const term = search.trim();
+  const result = response?.search === term ? response.result : null;
+  const error = failure?.search === term ? failure.message : "";
   useEffect(() => {
-    let live = true;
+    if (range) return;
+    const controller = new AbortController();
+    let clock: ReturnType<typeof setInterval> | undefined;
+    cancelValues.current = () => {
+      clearInterval(clock);
+      controller.abort();
+      setFailure({ search: term, message: "Values request cancelled. Search again or retry." });
+    };
+    const timer = setTimeout(() => {
+      setFailure(null);
+      const started = performance.now();
+      setElapsed({ search: term, ms: 0 });
+      clock = setInterval(() => setElapsed({ search: term, ms: performance.now() - started }), 100);
+      void loadExploreValues(projectId, attribute, { version, search: term, signal: controller.signal })
+        .then((value) => { if (!controller.signal.aborted) setResponse({ search: term, result: value }); })
+        .catch((error: unknown) => { if (!controller.signal.aborted) setFailure({ search: term, message: error instanceof Error ? error.message : "Values could not be loaded. Try again." }); })
+        .finally(() => clearInterval(clock));
+    }, 250);
+    return () => { clearTimeout(timer); clearInterval(clock); controller.abort(); };
+  }, [projectId, attribute, version, term, range, attempt]);
+  useEffect(() => {
     const trigger = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : document.getElementById(triggerId);
-    void distinctValues(projectId, attribute, version).then((value) => { if (live) setResult(value); }).catch((failure: unknown) => { if (live) setError(failure instanceof Error ? failure.message : "Values could not be loaded."); });
     dialog.current?.querySelector<HTMLInputElement>("input")?.focus();
     const place = () => {
       const popup = dialog.current;
@@ -137,7 +140,6 @@ function Slicer({ projectId, version, triggerId, attribute, column, filters, onA
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => {
-      live = false;
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
       observer.disconnect();
@@ -145,7 +147,7 @@ function Slicer({ projectId, version, triggerId, attribute, column, filters, onA
       else document.getElementById(triggerId)?.focus();
     };
   }, [projectId, attribute, version, triggerId]);
-  const values = result?.rows.filter((row) => formatAttribute(row.value, column).toLowerCase().includes(search.toLowerCase())) ?? [];
+  const values = result?.rows ?? [];
   const has = (value: QueryValue) => selected === null ? !excluded.some((candidate) => Object.is(candidate, value)) : selected.some((candidate) => Object.is(candidate, value));
   const toggle = (value: QueryValue) => {
     if (selected === null) setExcluded(excluded.some((candidate) => Object.is(candidate, value)) ? excluded.filter((candidate) => !Object.is(candidate, value)) : [...excluded, value]);
@@ -161,14 +163,14 @@ function Slicer({ projectId, version, triggerId, attribute, column, filters, onA
       <label>To<input type={column.type === "date" ? "date" : "number"} step="any" value={max} onChange={(event) => setMax(event.target.value)} /></label>
       {invalidRange && <p role="alert">Enter a valid range with From before To.</p>}
     </div> : <>
-      <input aria-label={`Search ${column.name} values`} placeholder="Search values…" value={search} onChange={(event) => setSearch(event.target.value)} />
+      <input aria-label={`Search ${column.name} values`} placeholder="Search all values…" value={search} maxLength={200} onChange={(event) => setSearch(event.target.value)} />
       <div className={styles.actions}><button type="button" onClick={() => { setSelected(null); setExcluded([]); }}>Select all</button><button type="button" onClick={() => { setSelected([]); setExcluded([]); }}>Select none</button></div>
       <div className={styles.values}>
-        {error ? <p role="alert">{error}</p> : !result ? <p role="status">Loading values…</p> : values.length ? values.map((row, index) => <label key={`${JSON.stringify(row.value)}:${index}`}><input type="checkbox" checked={has(row.value)} onChange={() => toggle(row.value)} /><span>{formatAttribute(row.value, column)}</span><small>{Number(row.count ?? 0).toLocaleString()} rows</small></label>) : <p>No matching values.</p>}
+        {error ? <div role="alert"><p>{error}</p><button type="button" className={styles.retry} onClick={() => setAttempt((value) => value + 1)}>Try again</button></div> : !result ? elapsed.search === term && elapsed.ms >= 3000 ? <div role="status"><p>Waiting for the database... · {(elapsed.ms / 1000).toFixed(1)} s</p><button type="button" className={styles.retry} onClick={() => cancelValues.current()}>Cancel values request</button></div> : <p role="status">Loading values…</p> : values.length ? values.map((row, index) => <label key={`${JSON.stringify(row.value)}:${index}`}><input type="checkbox" checked={has(row.value)} onChange={() => toggle(row.value)} /><span>{formatAttribute(row.value, column)}</span><small>{Number(row.count ?? 0).toLocaleString()} rows</small></label>) : <p>No matching values.</p>}
       </div>
-      {result?.truncated && <p className={styles.note}>Showing the first 1,000 values. Search applies to these values; use a range for a larger selection.</p>}
+      {result?.truncated && <p className={styles.note}>Showing up to 200 matching values. Search the full attribute to narrow the list, or use a range.</p>}
     </>}
-    <div className={styles.footer}><button type="button" className="button button-secondary" onClick={() => onApply([])}>Clear</button><button type="button" className="button button-primary" disabled={!!invalidRange || (!range && !result)} onClick={() => {
+    <div className={styles.footer}><button type="button" className="button button-secondary" onClick={() => onApply([])}>Clear</button><button type="button" className="button button-primary" disabled={!!invalidRange || (!range && (!result || !!error))} onClick={() => {
       if (range) {
         const next: QueryFilter[] = [];
         if (min !== "") next.push({ attribute, op: "gte", value: column.type === "number" ? Number(min) : min });

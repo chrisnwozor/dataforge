@@ -3,7 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "csv-parse/sync";
-import { compileQuery } from "@/lib/semantic/query/compile";
+import { compileDistinctValues, compileQuery } from "@/lib/semantic/query/compile";
 import { executeMaterializedSqlite } from "./helpers/materialized-sqlite";
 import type {
   SemanticColumn,
@@ -238,6 +238,12 @@ describe("shared aggregates retain relational results", () => {
     "Sales % of Total",
     "Furniture Sales",
   ];
+  it("searches slicer values on the server with literal wildcard handling and exact counts", () => {
+    const found = compileDistinctValues(model, category, true, { search: "Furn" });
+    expect(executeMaterializedSqlite(db, found)).toEqual([{ value: "Furniture", count: 4 }]);
+    for (const search of ["%", "_", "[", "Furniture' OR 1 = 1 --"])
+      expect(executeMaterializedSqlite(db, compileDistinctValues(model, category, true, { search }))).toEqual([]);
+  });
   it.each(cumulative)(
     "keeps expected category values through the cumulative set ending with %s",
     (name) => {
@@ -446,6 +452,23 @@ describe("shared aggregates retain relational results", () => {
     expect(
       execute({ measures: ["Sales", "Sales % of Total"], rows: [category] }),
     ).toEqual([]);
+  });
+
+  it("preserves empty fact and nullable scalar semantics on the simple path", () => {
+    const measures = ["Sales", "Profit Margin %", "Avg Sales", "Row Count"];
+    const grouped = execute({ measures, rows: [category] });
+    for (const row of grouped) {
+      const cell = visibleSource.filter((observation) => categoryOf(observation) === row.Category);
+      close(row.Sales, sum(cell, "sales"));
+      close(row["Profit Margin %"], divide(sum(cell, "profit"), sum(cell, "sales")));
+      close(row["Avg Sales"], divide(sum(cell, "sales"), cell.filter((observation) => observation.sales !== null).length));
+      expect(row["Row Count"]).toBe(cell.length);
+    }
+    db.exec("DELETE FROM [dw].[fact_sales]");
+    expect(execute({ measures, rows: [] })).toEqual([{
+      Sales: null, "Profit Margin %": null, "Avg Sales": null, "Row Count": 0,
+    }]);
+    expect(execute({ measures, rows: [category] })).toEqual([]);
   });
 
   it("computes the exact Product/Category share query over 2,000 Superstore rows in under one second locally", () => {

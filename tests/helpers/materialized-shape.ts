@@ -12,6 +12,15 @@ function tokens(sql: string): string[] {
 const identifier = (value: string) =>
   value.startsWith("[") ? value.slice(1, -1).replaceAll("]]", "]") : value;
 
+/** Simple aggregates need one relational statement and no tempdb work. */
+export function assertFastShape(sql: string, grouped = true): void {
+  expect(sql.match(/\bSELECT\b/gi)).toHaveLength(1);
+  expect(sql.match(/\b(?:FROM|JOIN)\s+\[dw\]\.\[fact_sales\]/gi)).toHaveLength(1);
+  expect(sql.match(/\bGROUP\s+BY\b/gi) ?? []).toHaveLength(grouped ? 1 : 0);
+  expect(sql).not.toMatch(/#df_|DENSE_RANK|\bOVER\s*\(|\bWITH\b|\bINTO\b|\bDROP\b|\bCREATE\b/i);
+  expect(sql).toMatch(/OPTION\s*\(\s*MAXDOP\s+2\s*,\s*MAX_GRANT_PERCENT\s*=\s*10\s*\)/i);
+}
+
 /** Structural properties prevent optimizer work from multiplying with references. */
 export function assertMaterializedShape(sql: string): void {
   expect(
@@ -113,12 +122,16 @@ export function assertMaterializedShape(sql: string): void {
       ).not.toBe("OR");
   }
   expect(sql).toMatch(/BEGIN\s+CATCH/i);
+  expect(sql).toMatch(/OPTION\s*\(\s*MAXDOP\s+2\s*,\s*MAX_GRANT_PERCENT\s*=\s*10\s*\)/i);
   const dropBase = /DROP TABLE IF EXISTS\s+(?:\[#df_base\]|#df_base)/gi;
   const catchAt = sql.search(/BEGIN\s+CATCH/i);
   expect(
     sql.slice(0, catchAt).match(dropBase),
-    "Base cleanup before work and after success",
-  ).toHaveLength(2);
+    "Base cleanup after success",
+  ).toHaveLength(1);
+  expect(sql.indexOf("DROP TABLE IF EXISTS [#df_base]")).toBeGreaterThan(
+    sql.indexOf("INTO [#df_base]"),
+  );
   expect(
     sql.slice(catchAt).match(dropBase),
     "Base cleanup after SQL failure",

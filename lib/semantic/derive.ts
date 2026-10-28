@@ -4,6 +4,7 @@ import {
   MAX_DEPENDENCY_ROW_VISITS,
 } from "@/lib/modeling/suggest";
 import { buildSqlContext } from "@/lib/sql/context";
+import { dateValue } from "@/lib/profiler/inference";
 import type { Model } from "@/lib/modeling/types";
 import type { SqlColumn, SqlGenerationInput } from "@/lib/sql/types";
 import type {
@@ -33,6 +34,34 @@ const type = (column: SqlColumn): SemanticType => {
 };
 const bracket = (value: string) => `[${value.replaceAll("]", "]]")}]`;
 const tableRef = (value: string) => `'${value.replaceAll("'", "''")}'`;
+
+/** Bounds come from retained profiles; metadata never issues a distinct-value query. */
+function calendarCardinality(name: string, sources: SqlColumn[]): { distinctCount?: number } {
+  const bounded: Record<string, number> = {
+    Quarter: 4, QuarterName: 4, Month: 12, MonthName: 12,
+    Day: 31, DayOfWeek: 7, DayName: 7, WeekOfYear: 53, IsWeekend: 2,
+  };
+  if (bounded[name] !== undefined) return { distinctCount: bounded[name] };
+  const minima = sources.flatMap((column) => {
+    const value = column.minValue && dateValue(column.minValue);
+    return typeof value === "number" ? [value] : [];
+  });
+  const maxima = sources.flatMap((column) => {
+    const value = column.maxValue && dateValue(column.maxValue);
+    return typeof value === "number" ? [value] : [];
+  });
+  if (!minima.length || !maxima.length) return {};
+  const start = new Date(Math.min(...minima));
+  const end = new Date(Math.max(...maxima));
+  start.setUTCHours(0, 0, 0, 0); end.setUTCHours(0, 0, 0, 0);
+  if (start.getUTCFullYear() > 1) start.setUTCFullYear(start.getUTCFullYear() - 1);
+  else { start.setUTCMonth(0, 1); }
+  if (end.getUTCFullYear() < 9999) end.setUTCFullYear(end.getUTCFullYear() + 1);
+  else { end.setUTCMonth(11, 31); }
+  return name === "Year"
+    ? { distinctCount: end.getUTCFullYear() - start.getUTCFullYear() + 1 }
+    : name === "Date" ? { distinctCount: Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1 } : {};
+}
 
 /** Derive metadata from exactly the same prepared SQL names used by the generator. No I/O. */
 export function deriveSemanticModel(
@@ -83,6 +112,7 @@ export function deriveSemanticModel(
       type: type(dimension.source),
       role: "attribute",
       sourceColumnId: dimension.id,
+      distinctCount: dimension.source.distinctCount,
     });
   const dimensions: SemanticTable[] = context.dimensions.map((dimension) => {
     const id = dimension.model.id;
@@ -117,6 +147,7 @@ export function deriveSemanticModel(
           sqlName: name,
           type: columnType,
           role: "attribute",
+          ...calendarCardinality(name, context.dateColumns),
         });
     } else
       for (const column of dimension.columns)
@@ -128,6 +159,7 @@ export function deriveSemanticModel(
           type: type(column.source),
           role: "attribute",
           sourceColumnId: column.id,
+          distinctCount: column.source.distinctCount,
         });
     return {
       id,

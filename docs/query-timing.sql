@@ -22,9 +22,30 @@ Never clear the server plan/buffer cache on a shared server for this test.
 */
 
 SET NOCOUNT ON;
+-- Match the app's existing Tedious session initialization.
+SET ARITHABORT ON;
 SET STATISTICS TIME ON;
 SET STATISTICS IO ON;
 GO
+
+-- Simple fast-path comparison: no temporary tables, windows, or DENSE_RANK.
+DECLARE @__df_limit INT = 1001;
+SELECT TOP (@__df_limit) [d].[Year],
+    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [Sales],
+    CAST(SUM(CAST([f].[profit] AS DECIMAL(38, 10))) AS FLOAT)
+        / NULLIF(SUM(CAST([f].[sales] AS DECIMAL(38, 10))), 0) AS [Profit Margin %]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d] ON [f].[date_key] = [d].[DateKey]
+WHERE [f].[date_key] <> -1
+GROUP BY [d].[Year]
+ORDER BY [d].[Year]
+OPTION (MAXDOP 2, MAX_GRANT_PERCENT = 10);
+GO
+
+-- Compare worker/memory waits and spills as well as execution time. These hints
+-- bound interactive resource use; on larger data a smaller grant may spill.
+-- The complex controls below illustrate alternate contexts. Paste the exact app
+-- batch (including its hints and unique temporary names) for an exact comparison.
 
 -- Runnable comparison: base aggregates are computed once; ratios use columns.
 -- Remove output columns cumulatively to compare Sales; + Profit Margin %;

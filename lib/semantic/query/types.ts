@@ -45,6 +45,8 @@ export interface PivotHint {
   columnValues: QueryValue[][];
 }
 export interface QueryTimings {
+  /** Time waiting for the per-project/server SQL scheduler, outside the driver. */
+  queueMs?: number;
   parseMs: number;
   compileMs: number;
   cacheLookupMs: number;

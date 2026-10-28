@@ -370,7 +370,13 @@ function dialect(statement: string): string | undefined {
     )
   )
     return undefined;
-  const selected = selectInto(inlineScalarValues(statement));
+  // Resource-governance query hints change SQL Server planning, not relational
+  // answers. SQLite has no OPTION clause; retain the entire SELECT otherwise.
+  const relational = statement.replace(
+    /\s+OPTION\s*\(\s*MAXDOP\s+2\s*,\s*MAX_GRANT_PERCENT\s*=\s*10\s*\)\s*$/i,
+    "",
+  );
+  const selected = selectInto(inlineScalarValues(relational));
   let sql = selected.sql;
   const destination = selected.destination;
   sql = groupingSets(sql)

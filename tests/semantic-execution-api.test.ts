@@ -397,11 +397,23 @@ describe("semantic execution and query endpoints", () => {
     expect((await getDistinctValues(projectId, "region:name")).rowCount).toBe(
       1,
     );
+    expect(state.calls[0].limit).toBe(200);
+    expect(state.calls[0].materialized).toBe(false);
+    const searched = await valuesGET(new Request("http://localhost/values?attribute=region%3Aname&search=50%25_&limit=20"), context);
+    expect(searched.status).toBe(200);
+    expect(state.calls.at(-1)?.limit).toBe(20);
+    expect(state.calls.at(-1)?.params.some((parameter) => String(parameter.value).includes("50~%~_"))).toBe(true);
+    expect(state.calls.at(-1)?.sql).not.toContain("50%");
     for (const search of [
       "",
       "?attribute=region%3Aname&attribute=x",
       "?attribute=region%3Aname&hideUnknown=yes",
       "?attribute=region%3Aname&sql=SELECT%201",
+      "?attribute=region%3Aname&limit=201",
+      "?attribute=region%3Aname&limit=0",
+      "?attribute=region%3Aname&limit=20&limit=30",
+      "?attribute=region%3Aname&search=a&search=b",
+      `?attribute=region%3Aname&search=${"x".repeat(201)}`,
     ])
       expect(
         (
@@ -411,6 +423,17 @@ describe("semantic execution and query endpoints", () => {
           )
         ).status,
       ).toBe(400);
+  });
+
+  it("caps the simple pivot at 50 distinct column members without window SQL", async () => {
+    state.rows = 60;
+    const result = await runSemanticQuery(projectId, {
+      measures: ["sales"], rows: [], columns: [{ table: "region", column: "region:name" }],
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.rows).toHaveLength(50);
+    expect(result.pivot?.columnValues).toHaveLength(50);
+    expect(result.sql).not.toMatch(/DENSE_RANK|#df_/i);
   });
 
   it("returns actionable timeouts and schema drift while redacting secret-bearing errors", async () => {

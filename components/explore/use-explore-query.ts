@@ -23,6 +23,7 @@ export interface ExploreQueryState {
   totals: ExploreTotals;
   loading: boolean;
   slow: boolean;
+  waiting: boolean;
   elapsedMs: number;
   error: ExploreQueryError | null;
   totalsError: string | null;
@@ -54,7 +55,7 @@ export function buildExploreRequests(config: ViewConfig): ExploreRequestPlan {
 }
 
 const initialState: ExploreQueryState = {
-  result: null, resultConfig: null, totals: {}, loading: false, slow: false, elapsedMs: 0,
+  result: null, resultConfig: null, totals: {}, loading: false, slow: false, waiting: false, elapsedMs: 0,
   error: null, totalsError: null,
 };
 
@@ -93,23 +94,23 @@ export class ExploreQueryController {
     this.stop();
     this.config = config;
     if (!config?.values.length) {
-      this.update({ result: null, resultConfig: null, totals: {}, loading: false, slow: false, elapsedMs: 0, error: null, totalsError: null });
+      this.update({ result: null, resultConfig: null, totals: {}, loading: false, slow: false, waiting: false, elapsedMs: 0, error: null, totalsError: null });
       return;
     }
-    this.update({ loading: true, slow: false, elapsedMs: 0, error: null, totalsError: null });
+    this.update({ loading: true, slow: false, waiting: false, elapsedMs: 0, error: null, totalsError: null });
     const generation = this.generation;
     this.debounce = setTimeout(() => void this.execute(config, generation), 250);
   }
   retry = () => this.configure(this.config);
   cancel = () => {
     this.stop();
-    this.update({ loading: false, slow: false, error: { message: "Query cancelled. Change a field or retry when you are ready." } });
+    this.update({ loading: false, slow: false, waiting: false, error: { message: "Query cancelled. Change a field or retry when you are ready." } });
   };
   dispose = () => this.stop();
 
-  private async post(query: SemanticQuery, signal: AbortSignal): Promise<QueryResult> {
+  private async post(query: SemanticQuery, signal: AbortSignal, purpose: "main" | "totals"): Promise<QueryResult> {
     const response = await this.fetchQuery(`/api/projects/${encodeURIComponent(this.projectId)}/query`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", "X-DataForge-Query-Purpose": purpose },
       body: JSON.stringify(query), signal,
     });
     const body = await response.json();
@@ -130,11 +131,11 @@ export class ExploreQueryController {
     this.clock = setInterval(() => {
       if (generation !== this.generation) return;
       const elapsedMs = performance.now() - started;
-      this.update({ elapsedMs, slow: elapsedMs >= 1_000 });
+      this.update({ elapsedMs, slow: elapsedMs >= 1_000, waiting: elapsedMs >= 3_000 });
     }, 100);
     const plan = buildExploreRequests(config);
     try {
-      const result = await this.post(plan.query, controller.signal);
+      const result = await this.post(plan.query, controller.signal, "main");
       if (generation !== this.generation || controller.signal.aborted) return;
       this.update({ result, resultConfig: config, totals: {}, loading: plan.totals.length > 0, error: null });
       if (plan.totals.length) {
@@ -144,7 +145,7 @@ export class ExploreQueryController {
           const key = JSON.stringify(entry.query);
           let pending = contexts.get(key);
           if (!pending) {
-            pending = this.post(entry.query, controller.signal);
+            pending = this.post(entry.query, controller.signal, "totals");
             contexts.set(key, pending);
           }
           return { key: entry.key, result: await pending };
@@ -159,7 +160,7 @@ export class ExploreQueryController {
         }
         this.update({ totals, totalsError: failed ? "Some server totals are unavailable or reached the result limit. Incomplete totals are shown as an em dash; narrow the view or retry." : null });
       }
-      this.update({ loading: false, slow: false, elapsedMs: result.elapsedMs });
+      this.update({ loading: false, slow: false, waiting: false, elapsedMs: result.elapsedMs });
     } catch (error) {
       if (generation !== this.generation || controller.signal.aborted) return;
       const failure = error instanceof TypeError
@@ -167,7 +168,7 @@ export class ExploreQueryController {
         : error && typeof error === "object" && "message" in error
         ? error as ExploreQueryError
         : { message: "The query could not reach DataForge. Check your connection and retry." };
-      this.update({ loading: false, slow: false, elapsedMs: performance.now() - started, error: failure });
+      this.update({ loading: false, slow: false, waiting: false, elapsedMs: performance.now() - started, error: failure });
     } finally {
       if (generation === this.generation) {
         clearInterval(this.clock);

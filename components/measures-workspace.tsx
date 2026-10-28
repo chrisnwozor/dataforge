@@ -1310,6 +1310,7 @@ const timingPhases: readonly [keyof QueryTimings, string][] = [
   ["parseMs", "Parse"],
   ["compileMs", "Node compile"],
   ["cacheLookupMs", "Cache lookup"],
+  ["queueMs", "Database queue"],
   ["poolAcquireMs", "Pool acquire"],
   ["connectMs", "Connect / login"],
   ["sendToFirstRowMs", "Send to first row"],
