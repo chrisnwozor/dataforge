@@ -34,6 +34,10 @@ const state = vi.hoisted(() => ({
   controls: [] as RequestControl[],
   rowDelays: false,
   dialDelay: 0,
+  sqlTexts: [] as string[],
+  batches: [] as string[],
+  infoMessages: [] as string[],
+  statisticsFailure: undefined as "ON" | "OFF" | undefined,
 }));
 vi.mock("mssql", async () => {
   const { EventEmitter } = await import("node:events");
@@ -134,12 +138,20 @@ vi.mock("mssql", async () => {
       return this;
     }
     async query(sql: string) {
-      expect(sql).toMatch(/^SELECT/);
+      state.sqlTexts.push(sql);
+      expect(sql).toMatch(/^(SELECT|SET STATISTICS TIME (?:ON|OFF);)/);
       const connection = await new Promise<Physical>((resolve, reject) =>
         this.parent.acquire(this, (error, physical) =>
           error ? reject(error) : resolve(physical),
         ),
       );
+      const setting = sql.match(/^SET STATISTICS TIME (ON|OFF);$/)?.[1];
+      if (setting) {
+        state.events.push(`statistics:${setting.toLowerCase()}`);
+        if (state.statisticsFailure === setting)
+          throw new Error("Statistics setting failed");
+        return { recordset: undefined };
+      }
       state.events.push("select");
       if (state.driverTimeout) {
         const error = Object.assign(new Error("Driver timeout"), {
@@ -162,10 +174,15 @@ vi.mock("mssql", async () => {
         this.emit("row", { total: 5 });
         await delay(10);
       } else this.emit("row", { total: 9 });
+      for (const message of state.infoMessages) this.emit("info", { message });
       state.events.push("done");
       this.parent.release(connection);
       connection.reject = undefined;
       return { recordset: undefined };
+    }
+    async batch(sql: string) {
+      state.batches.push(sql);
+      return this.query(sql);
     }
     cancel() {
       state.events.push("cancel");
@@ -234,6 +251,10 @@ beforeEach(async () => {
     controls: [],
     rowDelays: false,
     dialDelay: 0,
+    sqlTexts: [],
+    batches: [],
+    infoMessages: [],
+    statisticsFailure: undefined,
   });
 });
 afterEach(async () => {
@@ -252,6 +273,97 @@ const count = (event: string) =>
   state.events.filter((value) => value === event).length;
 
 describe("pooled read-only semantic SQL transport", () => {
+  it("enables SQL timings before the parameterized main RPC and resets them after its final info messages", async () => {
+    state.infoMessages = [
+      "SQL Server parse and compile time:\r\n CPU time = 31 ms, elapsed time = 978 ms.",
+      "SQL Server Execution Times:\n CPU time = 2 ms, elapsed time = 39 ms.",
+    ];
+    const observe = vi.fn();
+    expect(
+      await executeCompiledQuery(
+        settings,
+        { ...compiled, diagnostics: true },
+        undefined,
+        observe,
+      ),
+    ).toEqual([{ total: 9 }]);
+    expect(state.sqlTexts).toEqual([
+      "SET STATISTICS TIME ON;",
+      compiled.sql,
+      "SET STATISTICS TIME OFF;",
+    ]);
+    expect(state.batches).toEqual([
+      "SET STATISTICS TIME ON;",
+      "SET STATISTICS TIME OFF;",
+    ]);
+    expect(observe.mock.calls[0][0]).toMatchObject({
+      sqlCompileMs: 978,
+      sqlCompileCpuMs: 31,
+      sqlExecuteMs: 39,
+      sqlExecuteCpuMs: 2,
+    });
+    expect(count("release")).toBe(1);
+    expect(count("discard")).toBe(0);
+    await executeCompiledQuery(settings, compiled);
+    expect(count("connect")).toBe(1);
+    expect(state.sqlTexts.at(-1)).toBe(compiled.sql);
+  });
+  it("does not enable diagnostics or invent zero SQL timing values for ordinary queries", async () => {
+    const observe = vi.fn();
+    await executeCompiledQuery(settings, compiled, undefined, observe);
+    expect(state.sqlTexts).toEqual([compiled.sql]);
+    expect(observe.mock.calls[0][0]).not.toHaveProperty("sqlCompileMs");
+    expect(observe.mock.calls[0][0]).not.toHaveProperty("sqlExecuteMs");
+  });
+  it("resets STATISTICS TIME on SQL failure and physically discards a session whose reset fails", async () => {
+    state.failQuery = new Error("Invalid generated table");
+    await expect(
+      executeCompiledQuery(settings, { ...compiled, diagnostics: true }),
+    ).rejects.toThrow("Invalid generated table");
+    expect(state.sqlTexts.at(-1)).toBe("SET STATISTICS TIME OFF;");
+    expect(count("release")).toBe(1);
+    state.failQuery = undefined;
+    state.statisticsFailure = "OFF";
+    await executeCompiledQuery(settings, { ...compiled, diagnostics: true });
+    expect(count("discard")).toBe(1);
+    expect(count("socketDestroy")).toBe(1);
+  });
+  it("discards cancelled materialized batches even after acknowledgement so temp objects cannot leak to a borrower", async () => {
+    const controller = new AbortController();
+    state.wait = true;
+    const ready = started();
+    const operation = executeCompiledQuery(
+      settings,
+      { ...compiled, materialized: true },
+      controller.signal,
+    );
+    const rejected =
+      expect(operation).rejects.toBeInstanceOf(QueryAbortedError);
+    await ready;
+    controller.abort();
+    await rejected;
+    expect(count("cancel")).toBe(1);
+    expect(count("discard")).toBe(1);
+    expect(count("release")).toBe(0);
+    expect(count("socketDestroy")).toBe(1);
+  });
+  it("discards a diagnostics session on cancellation instead of leaving STATISTICS TIME enabled", async () => {
+    const controller = new AbortController();
+    state.wait = true;
+    const ready = started();
+    const operation = executeCompiledQuery(
+      settings,
+      { ...compiled, diagnostics: true },
+      controller.signal,
+    );
+    const rejected =
+      expect(operation).rejects.toBeInstanceOf(QueryAbortedError);
+    await ready;
+    controller.abort();
+    await rejected;
+    expect(state.sqlTexts).toEqual(["SET STATISTICS TIME ON;", compiled.sql]);
+    expect(count("discard")).toBe(1);
+  });
   it("reuses one healthy pool/session and binds limit as SQL Int rather than BigInt", async () => {
     expect(await executeCompiledQuery(settings, compiled)).toEqual([
       { total: 9 },

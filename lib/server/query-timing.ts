@@ -32,7 +32,8 @@ export function addQueryPhase(
   phase: keyof QueryTimings,
   startedAt: number,
 ): void {
-  context.timings[phase] += Math.max(0, performance.now() - startedAt);
+  context.timings[phase] =
+    (context.timings[phase] ?? 0) + Math.max(0, performance.now() - startedAt);
 }
 
 /** Log only numeric phases and an application project ID, never SQL, values, or credentials. */
@@ -47,8 +48,14 @@ export function finishQueryTiming(
       0,
       performance.now() - context.startedAt,
     );
-    for (const phase of Object.keys(context.timings) as (keyof QueryTimings)[])
-      context.timings[phase] = Math.round(context.timings[phase] * 100) / 100;
+    for (const phase of Object.keys(
+      context.timings,
+    ) as (keyof QueryTimings)[]) {
+      const value = context.timings[phase];
+      if (typeof value === "number" && Number.isFinite(value))
+        context.timings[phase] = Math.round(value * 100) / 100;
+      else delete context.timings[phase];
+    }
     context.finished = true;
     console.info(
       JSON.stringify({
@@ -58,7 +65,7 @@ export function finishQueryTiming(
         fromCache,
         timings: context.timings,
         slowPhases: Object.entries(context.timings)
-          .filter(([, value]) => value > 2_000)
+          .filter(([, value]) => typeof value === "number" && value > 2_000)
           .map(([phase]) => phase),
       }),
     );

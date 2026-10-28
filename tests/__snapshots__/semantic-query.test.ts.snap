@@ -1,626 +1,1224 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`semantic query expressions and context > applies DIVIDE's alternate only for a null or zero denominator, preserving a null numerator 1`] = `
-"WITH [__df_aggregates] AS (
-  SELECT COUNT_BIG(*) AS [__df_group_count]
-  FROM [dw].[fact_sales] AS [f]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, (CASE WHEN @p1 IS NULL OR @p1 = 0 THEN @p2 ELSE CAST(@p0 AS FLOAT) / NULLIF(@p1, 0) END) AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[__df_d0] AS [m0]
-  FROM [__df_scalar_0] AS [s]
-)
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [f].[fact_key] AS [c0],
+  CAST(0 AS INT) AS [__df_k0]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f];
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT CAST(0 AS INT) AS [__df_grain],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (());
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_grain]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [__df_d0].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+
+CROSS APPLY (VALUES ((CASE WHEN NULLIF(@p0, 0) IS NULL THEN @p1 ELSE (CAST(NULL AS FLOAT) / NULLIF(@p0, 0)) END))) AS [__df_d0] ([v]);
 SELECT TOP (@__df_limit) [r].[m0]
-FROM [__df_result] AS [r];"
+FROM [#df_result] AS [r];
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > compiles MTD with calendar range joins and preserves non-date groups 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d2].[Year] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d2].[Year] AS [c0],
     [d0].[category] AS [c1],
     [d1].[region] AS [c2],
     [d2].[Date] AS [c3],
-    [f].[sales] AS [c4]
-  FROM [dw].[fact_sales] AS [f]
+    [f].[sales] AS [c4],
+    [f].[fact_key] AS [c5],
+    [f].[product_key] AS [c6],
+    [d0].[product_key] AS [c7],
+    [f].[region_key] AS [c8],
+    [d1].[region_key] AS [c9],
+    [f].[date_key] AS [c10],
+    [d2].[DateKey] AS [c11],
+  DENSE_RANK() OVER (ORDER BY [d2].[Year]) AS [__df_k0],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k1],
+  [d2].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_date] AS [d2] ON [f].[date_key] = [d2].[DateKey]
-  WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], MIN([b].[c3]) AS [__df_start], MAX([b].[c3]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p1 AND [b].[c2] = @p2
-  GROUP BY [b].[c0], [b].[c1]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p0 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1) AND [b].[c3] <= [g].[__df_end]) AS [__df_v0]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[a1],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-)
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_k1],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  MAX([b].[c1]) AS [a1],
+  SUM(CAST(CASE WHEN [b].[c2] = @p2 THEN [b].[c4] END AS DECIMAL(38, 10))) AS [__df_v0],
+  MIN(CASE WHEN [b].[c0] = @p0 AND [b].[c2] = @p1 THEN [b].[__df_date] END) AS [__df_anchor0_start],
+  MAX(CASE WHEN [b].[c0] = @p0 AND [b].[c2] = @p1 THEN [b].[__df_date] END) AS [__df_anchor0_end],
+  COUNT_BIG(CASE WHEN [b].[c0] = @p3 AND [b].[c2] = @p4 THEN 1 END) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0], [__df_k1]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0] AND [a].[__df_k1] = [g].[__df_k1]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 4 AND [d].[__df_k1] = [g].[__df_k1] AND [d].[__df_date] >= DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), MONTH([a].[__df_anchor0_end]), 1) AND [d].[__df_date] <= [a].[__df_anchor0_end]
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [g].[a1],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > compiles PREVIOUSPERIOD MONTH without interpolating the period request 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d0].[Year] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[Year] AS [c0],
     [d0].[Date] AS [c1],
-    [f].[sales] AS [c2]
-  FROM [dw].[fact_sales] AS [f]
+    [f].[sales] AS [c2],
+    [f].[fact_key] AS [c3],
+    [f].[date_key] AS [c4],
+    [d0].[DateKey] AS [c5],
+  DENSE_RANK() OVER (ORDER BY [d0].[Year]) AS [__df_k0],
+  [d0].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
-  WHERE [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], MIN([b].[c1]) AS [__df_start], MAX([b].[c1]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  GROUP BY [b].[c0]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), MONTH([g].[__df_end]), 1))) AS [__df_v0]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-)
+WHERE [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  SUM(CAST([b].[c2] AS DECIMAL(38, 10))) AS [__df_v0],
+  MIN([b].[__df_date]) AS [__df_anchor0_start],
+  MAX([b].[__df_date]) AS [__df_anchor0_end],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 2 AND 1 = 1 AND [d].[__df_date] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), MONTH([a].[__df_anchor0_end]), 1)) AND [d].[__df_date] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), MONTH([a].[__df_anchor0_end]), 1))
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > compiles PREVIOUSPERIOD QUARTER without interpolating the period request 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d0].[Year] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[Year] AS [c0],
     [d0].[Date] AS [c1],
-    [f].[sales] AS [c2]
-  FROM [dw].[fact_sales] AS [f]
+    [f].[sales] AS [c2],
+    [f].[fact_key] AS [c3],
+    [f].[date_key] AS [c4],
+    [d0].[DateKey] AS [c5],
+  DENSE_RANK() OVER (ORDER BY [d0].[Year]) AS [__df_k0],
+  [d0].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
-  WHERE [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], MIN([b].[c1]) AS [__df_start], MAX([b].[c1]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  GROUP BY [b].[c0]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(QUARTER, -1, DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1))) AS [__df_v0]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-)
+WHERE [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  SUM(CAST([b].[c2] AS DECIMAL(38, 10))) AS [__df_v0],
+  MIN([b].[__df_date]) AS [__df_anchor0_start],
+  MAX([b].[__df_date]) AS [__df_anchor0_end],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 2 AND 1 = 1 AND [d].[__df_date] >= DATEADD(QUARTER, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), (DATEPART(QUARTER, [a].[__df_anchor0_end]) - 1) * 3 + 1, 1)) AND [d].[__df_date] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), (DATEPART(QUARTER, [a].[__df_anchor0_end]) - 1) * 3 + 1, 1))
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > compiles PREVIOUSPERIOD YEAR without interpolating the period request 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d0].[Year] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[Year] AS [c0],
     [d0].[Date] AS [c1],
-    [f].[sales] AS [c2]
-  FROM [dw].[fact_sales] AS [f]
+    [f].[sales] AS [c2],
+    [f].[fact_key] AS [c3],
+    [f].[date_key] AS [c4],
+    [d0].[DateKey] AS [c5],
+  DENSE_RANK() OVER (ORDER BY [d0].[Year]) AS [__df_k0],
+  [d0].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
-  WHERE [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], MIN([b].[c1]) AS [__df_start], MAX([b].[c1]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  GROUP BY [b].[c0]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c1] >= DATEADD(YEAR, -1, DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1)) AND [b].[c1] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1))) AS [__df_v0]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-)
+WHERE [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  SUM(CAST([b].[c2] AS DECIMAL(38, 10))) AS [__df_v0],
+  MIN([b].[__df_date]) AS [__df_anchor0_start],
+  MAX([b].[__df_date]) AS [__df_anchor0_end],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 2 AND 1 = 1 AND [d].[__df_date] >= DATEADD(YEAR, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), 1, 1)) AND [d].[__df_date] <= DATEADD(DAY, -1, DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), 1, 1))
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > compiles QTD with calendar range joins and preserves non-date groups 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d2].[Year] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d2].[Year] AS [c0],
     [d0].[category] AS [c1],
     [d1].[region] AS [c2],
     [d2].[Date] AS [c3],
-    [f].[sales] AS [c4]
-  FROM [dw].[fact_sales] AS [f]
+    [f].[sales] AS [c4],
+    [f].[fact_key] AS [c5],
+    [f].[product_key] AS [c6],
+    [d0].[product_key] AS [c7],
+    [f].[region_key] AS [c8],
+    [d1].[region_key] AS [c9],
+    [f].[date_key] AS [c10],
+    [d2].[DateKey] AS [c11],
+  DENSE_RANK() OVER (ORDER BY [d2].[Year]) AS [__df_k0],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k1],
+  [d2].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_date] AS [d2] ON [f].[date_key] = [d2].[DateKey]
-  WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], MIN([b].[c3]) AS [__df_start], MAX([b].[c3]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p1 AND [b].[c2] = @p2
-  GROUP BY [b].[c0], [b].[c1]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p0 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), ((MONTH([g].[__df_end]) - 1) / 3) * 3 + 1, 1) AND [b].[c3] <= [g].[__df_end]) AS [__df_v0]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[a1],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-)
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_k1],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  MAX([b].[c1]) AS [a1],
+  SUM(CAST(CASE WHEN [b].[c2] = @p2 THEN [b].[c4] END AS DECIMAL(38, 10))) AS [__df_v0],
+  MIN(CASE WHEN [b].[c0] = @p0 AND [b].[c2] = @p1 THEN [b].[__df_date] END) AS [__df_anchor0_start],
+  MAX(CASE WHEN [b].[c0] = @p0 AND [b].[c2] = @p1 THEN [b].[__df_date] END) AS [__df_anchor0_end],
+  COUNT_BIG(CASE WHEN [b].[c0] = @p3 AND [b].[c2] = @p4 THEN 1 END) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0], [__df_k1]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0] AND [a].[__df_k1] = [g].[__df_k1]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 4 AND [d].[__df_k1] = [g].[__df_k1] AND [d].[__df_date] >= DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), (DATEPART(QUARTER, [a].[__df_anchor0_end]) - 1) * 3 + 1, 1) AND [d].[__df_date] <= [a].[__df_anchor0_end]
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [g].[a1],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > compiles SAMEPERIODLASTYEAR with calendar range joins and preserves non-date groups 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d2].[Year] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d2].[Year] AS [c0],
     [d0].[category] AS [c1],
     [d1].[region] AS [c2],
     [d2].[Date] AS [c3],
-    [f].[sales] AS [c4]
-  FROM [dw].[fact_sales] AS [f]
+    [f].[sales] AS [c4],
+    [f].[fact_key] AS [c5],
+    [f].[product_key] AS [c6],
+    [d0].[product_key] AS [c7],
+    [f].[region_key] AS [c8],
+    [d1].[region_key] AS [c9],
+    [f].[date_key] AS [c10],
+    [d2].[DateKey] AS [c11],
+  DENSE_RANK() OVER (ORDER BY [d2].[Year]) AS [__df_k0],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k1],
+  [d2].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_date] AS [d2] ON [f].[date_key] = [d2].[DateKey]
-  WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], MIN([b].[c3]) AS [__df_start], MAX([b].[c3]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p1 AND [b].[c2] = @p2
-  GROUP BY [b].[c0], [b].[c1]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p0 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c3] <= DATEADD(YEAR, -1, [g].[__df_end])) AS [__df_v0]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[a1],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-)
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_k1],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  MAX([b].[c1]) AS [a1],
+  SUM(CAST(CASE WHEN [b].[c2] = @p2 THEN [b].[c4] END AS DECIMAL(38, 10))) AS [__df_v0],
+  MIN(CASE WHEN [b].[c0] = @p0 AND [b].[c2] = @p1 THEN [b].[__df_date] END) AS [__df_anchor0_start],
+  MAX(CASE WHEN [b].[c0] = @p0 AND [b].[c2] = @p1 THEN [b].[__df_date] END) AS [__df_anchor0_end],
+  COUNT_BIG(CASE WHEN [b].[c0] = @p3 AND [b].[c2] = @p4 THEN 1 END) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0], [__df_k1]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0] AND [a].[__df_k1] = [g].[__df_k1]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 4 AND [d].[__df_k1] = [g].[__df_k1] AND [d].[__df_date] >= DATEADD(YEAR, -1, [a].[__df_anchor0_start]) AND [d].[__df_date] <= DATEADD(YEAR, -1, [a].[__df_anchor0_end])
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [g].[a1],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > compiles YTD with calendar range joins and preserves non-date groups 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d2].[Year] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d2].[Year] AS [c0],
     [d0].[category] AS [c1],
     [d1].[region] AS [c2],
     [d2].[Date] AS [c3],
-    [f].[sales] AS [c4]
-  FROM [dw].[fact_sales] AS [f]
+    [f].[sales] AS [c4],
+    [f].[fact_key] AS [c5],
+    [f].[product_key] AS [c6],
+    [d0].[product_key] AS [c7],
+    [f].[region_key] AS [c8],
+    [d1].[region_key] AS [c9],
+    [f].[date_key] AS [c10],
+    [d2].[DateKey] AS [c11],
+  DENSE_RANK() OVER (ORDER BY [d2].[Year]) AS [__df_k0],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k1],
+  [d2].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_date] AS [d2] ON [f].[date_key] = [d2].[DateKey]
-  WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], [b].[c1] AS [a1], MIN([b].[c3]) AS [__df_start], MAX([b].[c3]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  WHERE [b].[c0] = @p1 AND [b].[c2] = @p2
-  GROUP BY [b].[c0], [b].[c1]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT SUM(CAST([b].[c4] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] = @p0 AND ([b].[c1] = [g].[a1] OR ([b].[c1] IS NULL AND [g].[a1] IS NULL)) AND [b].[c3] >= DATEFROMPARTS(YEAR([g].[__df_end]), 1, 1) AND [b].[c3] <= [g].[__df_end]) AS [__df_v0]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[a1],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-)
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_k1],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  MAX([b].[c1]) AS [a1],
+  SUM(CAST(CASE WHEN [b].[c2] = @p2 THEN [b].[c4] END AS DECIMAL(38, 10))) AS [__df_v0],
+  MIN(CASE WHEN [b].[c0] = @p0 AND [b].[c2] = @p1 THEN [b].[__df_date] END) AS [__df_anchor0_start],
+  MAX(CASE WHEN [b].[c0] = @p0 AND [b].[c2] = @p1 THEN [b].[__df_date] END) AS [__df_anchor0_end],
+  COUNT_BIG(CASE WHEN [b].[c0] = @p3 AND [b].[c2] = @p4 THEN 1 END) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]), ([b].[__df_k1], [b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0], [__df_k1]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0] AND [a].[__df_k1] = [g].[__df_k1]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 4 AND [d].[__df_k1] = [g].[__df_k1] AND [d].[__df_date] >= DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), 1, 1) AND [d].[__df_date] <= [a].[__df_anchor0_end]
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [g].[a1],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > compiles YoY and scalar expressions without nested SQL aggregates 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d0].[Year] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[Year] AS [c0],
     [f].[sales] AS [c1],
-    [d0].[Date] AS [c2]
-  FROM [dw].[fact_sales] AS [f]
+    [d0].[Date] AS [c2],
+    [f].[fact_key] AS [c3],
+    [f].[date_key] AS [c4],
+    [d0].[DateKey] AS [c5],
+  DENSE_RANK() OVER (ORDER BY [d0].[Year]) AS [__df_k0],
+  [d0].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_date] AS [d0] ON [f].[date_key] = [d0].[DateKey]
-  WHERE [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], MIN([b].[c2]) AS [__df_start], MAX([b].[c2]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  GROUP BY [b].[c0]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT COUNT_BIG(*) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL))) AS [__df_v0],
-    (SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL))) AS [__df_v1],
-    (SELECT SUM(CAST([b].[c1] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE [b].[c2] >= DATEADD(YEAR, -1, [g].[__df_start]) AND [b].[c2] <= DATEADD(YEAR, -1, [g].[__df_end])) AS [__df_v2]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_v1] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_scalar_2] AS (
-  SELECT [s].*, [s].[__df_v2] AS [__df_d2]
-  FROM [__df_scalar_1] AS [s]
-),
-[__df_scalar_3] AS (
-  SELECT [s].*, (CASE WHEN ([s].[__df_d0] > @p0) THEN ROUND(ABS((CASE WHEN [s].[__df_d2] IS NULL OR [s].[__df_d2] = 0 THEN @p1 ELSE CAST(([s].[__df_d1] - [s].[__df_d2]) AS FLOAT) / NULLIF([s].[__df_d2], 0) END)), @p2) ELSE @p3 END) AS [__df_d3]
-  FROM [__df_scalar_2] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[__df_d3] AS [m0]
-  FROM [__df_scalar_3] AS [s]
-)
+WHERE [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  COUNT_BIG(1) AS [__df_v0],
+  SUM(CAST([b].[c1] AS DECIMAL(38, 10))) AS [__df_v1],
+  SUM(CAST([b].[c1] AS DECIMAL(38, 10))) AS [__df_v2],
+  MIN([b].[__df_date]) AS [__df_anchor0_start],
+  MAX([b].[__df_date]) AS [__df_anchor0_end],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v2]) AS [__df_v2]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 2 AND 1 = 1 AND [d].[__df_date] >= DATEADD(YEAR, -1, [a].[__df_anchor0_start]) AND [d].[__df_date] <= DATEADD(YEAR, -1, [a].[__df_anchor0_end])
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [__df_d3].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([g].[__df_v1])) AS [__df_d1] ([v])
+CROSS APPLY (VALUES ([t0].[__df_v2])) AS [__df_d2] ([v])
+CROSS APPLY (VALUES ((CASE WHEN ([__df_d0].[v] > @p0) THEN ROUND(ABS((CASE WHEN NULLIF([__df_d2].[v], 0) IS NULL THEN @p1 ELSE (CAST(([__df_d1].[v] - [__df_d2].[v]) AS FLOAT) / NULLIF([__df_d2].[v], 0)) END)), @p2) ELSE NULL END))) AS [__df_d3] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > implements additive ALL from shared aggregates before filtering visible groups 1`] = `
-"WITH [__df_aggregates] AS (
-  SELECT [d0].[category] AS [a0],
-    [d1].[region] AS [a1],
-    SUM(CAST(CASE WHEN [d0].[category] = @p0 THEN [f].[sales] END AS DECIMAL(38, 10))) AS [__df_v0],
-    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v1],
-    COUNT_BIG(CASE WHEN [d0].[category] = @p1 THEN 1 END) AS [__df_group_count]
-  FROM [dw].[fact_sales] AS [f]
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_totals];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[category] AS [c0],
+    [d1].[region] AS [c1],
+    [f].[sales] AS [c2],
+    [f].[fact_key] AS [c3],
+    [f].[product_key] AS [c4],
+    [d0].[product_key] AS [c5],
+    [f].[region_key] AS [c6],
+    [d1].[region_key] AS [c7],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0],
+  DENSE_RANK() OVER (ORDER BY [d1].[region]) AS [__df_k1]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
-  WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1
-  GROUP BY [d0].[category], [d1].[region]
-),
-[__df_windows] AS (
-  SELECT [s].*, SUM([s].[__df_v1]) OVER (PARTITION BY [s].[a1]) AS [__df_w0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_windows] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_w0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_scalar_2] AS (
-  SELECT [s].*, (CASE WHEN [s].[__df_d1] IS NULL OR [s].[__df_d1] = 0 THEN NULL ELSE CAST([s].[__df_d0] AS FLOAT) / NULLIF([s].[__df_d1], 0) END) AS [__df_d2]
-  FROM [__df_scalar_1] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[a1],
-    [s].[__df_d2] AS [m0]
-  FROM [__df_scalar_2] AS [s]
-  WHERE [s].[__df_group_count] > 0
-)
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_k1],
+  MAX([b].[c0]) AS [a0],
+  MAX([b].[c1]) AS [a1],
+  SUM(CAST(CASE WHEN [b].[c0] = @p0 THEN [b].[c2] END AS DECIMAL(38, 10))) AS [__df_v0],
+  SUM(CAST([b].[c2] AS DECIMAL(38, 10))) AS [__df_v1],
+  COUNT_BIG(CASE WHEN [b].[c0] = @p1 THEN 1 END) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0], [__df_k1]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].*, SUM([g].[__df_v1]) OVER (PARTITION BY [g].[__df_k1]) AS [__df_w0]
+INTO [#df_totals]
+FROM [#df_groups] AS [g];
+SELECT [g].[a0],
+  [g].[a1],
+  [__df_d2].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_totals] AS [g]
+
+CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([g].[__df_w0])) AS [__df_d1] ([v])
+CROSS APPLY (VALUES ((CAST([__df_d0].[v] AS FLOAT) / NULLIF([__df_d1].[v], 0)))) AS [__df_d2] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC, [r].[a1] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC, [r].[a1] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_totals];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_totals];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > recomputes time anchors under CALCULATE filters, then removes date restrictions for the shifted range 1`] = `
-"WITH [__df_base] AS (
-  SELECT [d0].[category] AS [c0],
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[category] AS [c0],
     [d1].[Date] AS [c1],
     [f].[sales] AS [c2],
-    [d1].[Year] AS [c3]
-  FROM [dw].[fact_sales] AS [f]
+    [d1].[Year] AS [c3],
+    [f].[fact_key] AS [c4],
+    [f].[product_key] AS [c5],
+    [d0].[product_key] AS [c6],
+    [f].[date_key] AS [c7],
+    [d1].[DateKey] AS [c8],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0],
+  [d1].[Date] AS [__df_date]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[date_key] = [d1].[DateKey]
-  WHERE [f].[product_key] <> -1 AND [f].[date_key] <> -1
-),
-[__df_groups] AS (
-  SELECT [b].[c0] AS [a0], MIN([b].[c1]) AS [__df_start], MAX([b].[c1]) AS [__df_end]
-  FROM [__df_base] AS [b]
-  GROUP BY [b].[c0]
-),
-[__df_aggregates] AS (
-  SELECT [g].*,
-    (SELECT SUM(CAST([b].[c2] AS DECIMAL(38, 10))) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND [b].[c1] >= DATEFROMPARTS(YEAR((SELECT MAX([b].[c1]) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND ([b].[c3] = @p0))), 1, 1) AND [b].[c1] <= (SELECT MAX([b].[c1]) FROM [__df_base] AS [b] WHERE ([b].[c0] = [g].[a0] OR ([b].[c0] IS NULL AND [g].[a0] IS NULL)) AND ([b].[c3] = @p0))) AS [__df_v0]
-  FROM [__df_groups] AS [g]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-)
+WHERE [f].[product_key] <> -1 AND [f].[date_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_date]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_date],
+  MAX([b].[c0]) AS [a0],
+  SUM(CAST([b].[c2] AS DECIMAL(38, 10))) AS [__df_v0],
+  MIN(CASE WHEN ([b].[c3] = @p0) THEN [b].[__df_date] END) AS [__df_anchor0_start],
+  MAX(CASE WHEN ([b].[c3] = @p0) THEN [b].[__df_date] END) AS [__df_anchor0_end],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]), ([b].[__df_k0], [b].[__df_date]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_date], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 1;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[__df_gid], SUM([d].[__df_v0]) AS [__df_v0]
+INTO [#df_scope_0]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_agg] AS [a] ON [a].[__df_grain] = 1 AND [a].[__df_k0] = [g].[__df_k0]
+LEFT JOIN [#df_agg] AS [d] ON [d].[__df_grain] = 0 AND [d].[__df_k0] = [g].[__df_k0] AND [d].[__df_date] >= DATEFROMPARTS(YEAR([a].[__df_anchor0_end]), 1, 1) AND [d].[__df_date] <= [a].[__df_anchor0_end]
+GROUP BY [g].[__df_gid];
+CREATE UNIQUE CLUSTERED INDEX [ix_df_scope_0] ON [#df_scope_0] ([__df_gid]);
+SELECT [g].[a0],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+LEFT JOIN [#df_scope_0] AS [t0] ON [t0].[__df_gid] = [g].[__df_gid]
+CROSS APPLY (VALUES ([t0].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_scope_0];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > uses a shared conditional aggregate and window when CALCULATE replaces a grouping or slicer 1`] = `
-"WITH [__df_aggregates] AS (
-  SELECT [d0].[category] AS [a0],
-    SUM(CAST(CASE WHEN ([d0].[category] = @p0) THEN [f].[sales] END AS DECIMAL(38, 10))) AS [__df_v0],
-    COUNT_BIG(CASE WHEN [d0].[category] = @p1 THEN 1 END) AS [__df_group_count]
-  FROM [dw].[fact_sales] AS [f]
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_totals];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[category] AS [c0],
+    [f].[sales] AS [c1],
+    [f].[fact_key] AS [c2],
+    [f].[product_key] AS [c3],
+    [d0].[product_key] AS [c4],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
-  WHERE [f].[product_key] <> -1
-  GROUP BY [d0].[category]
-),
-[__df_windows] AS (
-  SELECT [s].*, SUM([s].[__df_v0]) OVER () AS [__df_w0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_w0] AS [__df_d0]
-  FROM [__df_windows] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-  WHERE [s].[__df_group_count] > 0
-)
+WHERE [f].[product_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
+  [b].[__df_k0],
+  MAX([b].[c0]) AS [a0],
+  SUM(CAST(CASE WHEN ([b].[c0] = @p0) THEN [b].[c1] END AS DECIMAL(38, 10))) AS [__df_v0],
+  COUNT_BIG(CASE WHEN [b].[c0] = @p1 THEN 1 END) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].*, SUM([g].[__df_v0]) OVER () AS [__df_w0]
+INTO [#df_totals]
+FROM [#df_groups] AS [g];
+SELECT [g].[a0],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_totals] AS [g]
+
+CROSS APPLY (VALUES ([g].[__df_w0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_totals];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_totals];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query expressions and context > uses conditional aggregation for joined CALCULATE filters with every literal bound 1`] = `
-"WITH [__df_aggregates] AS (
-  SELECT [d1].[region] AS [a0],
-    SUM(CAST(CASE WHEN ([d0].[category] IN (@p0, @p1)) THEN [f].[sales] END AS DECIMAL(38, 10))) AS [__df_v0],
-    COUNT_BIG(*) AS [__df_group_count]
-  FROM [dw].[fact_sales] AS [f]
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d1].[region] AS [c0],
+    [f].[sales] AS [c1],
+    [d0].[category] AS [c2],
+    [f].[fact_key] AS [c3],
+    [f].[product_key] AS [c4],
+    [d0].[product_key] AS [c5],
+    [f].[region_key] AS [c6],
+    [d1].[region_key] AS [c7],
+  DENSE_RANK() OVER (ORDER BY [d1].[region]) AS [__df_k0]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
-  WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1
-  GROUP BY [d1].[region]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_d0] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[__df_d1] AS [m0]
-  FROM [__df_scalar_1] AS [s]
-  WHERE [s].[__df_group_count] > 0
-)
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
+  [b].[__df_k0],
+  MAX([b].[c0]) AS [a0],
+  SUM(CAST(CASE WHEN ([b].[c2] IN (@p0, @p1)) THEN [b].[c1] END AS DECIMAL(38, 10))) AS [__df_v0],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[a0],
+  [__df_d1].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+
+CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([__df_d0].[v])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query injection and filter boundaries > compiles capped distinct values and counts using the same safe model joins 1`] = `
-"SELECT TOP (@__df_limit) [d0].[category] AS [value], COUNT_BIG(*) AS [count]
-FROM [dw].[fact_sales] AS [f]
-  LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
-WHERE [f].[product_key] <> -1
-GROUP BY [d0].[category]
-ORDER BY [count] DESC, [value] ASC;"
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[category] AS [c0],
+    [f].[product_key] AS [c1],
+    [d0].[product_key] AS [c2], DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0] INTO [#df_base] FROM [dw].[fact_sales] AS [f]
+  LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key] WHERE [f].[product_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT TOP (@__df_limit) [b].[c0] AS [value], COUNT_BIG(*) AS [count]
+FROM [#df_base] AS [b]
+GROUP BY [b].[c0]
+ORDER BY [count] DESC, [value] ASC;
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query validation and grouping > compiles a three-dimension grouped query with deterministic selected ordering and Top N 1`] = `
-"WITH [__df_aggregates] AS (
-  SELECT [d0].[category] AS [a0],
-    [d1].[region] AS [a1],
-    [d2].[segment] AS [a2],
-    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v0],
-    COUNT_BIG(*) AS [__df_v1],
-    COUNT_BIG(*) AS [__df_group_count]
-  FROM [dw].[fact_sales] AS [f]
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[category] AS [c0],
+    [d1].[region] AS [c1],
+    [d2].[segment] AS [c2],
+    [f].[sales] AS [c3],
+    [f].[fact_key] AS [c4],
+    [f].[product_key] AS [c5],
+    [d0].[product_key] AS [c6],
+    [f].[region_key] AS [c7],
+    [d1].[region_key] AS [c8],
+    [f].[customer_key] AS [c9],
+    [d2].[customer_key] AS [c10],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0],
+  DENSE_RANK() OVER (ORDER BY [d1].[region]) AS [__df_k1],
+  DENSE_RANK() OVER (ORDER BY [d2].[segment]) AS [__df_k2]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_customer] AS [d2] ON [f].[customer_key] = [d2].[customer_key]
-  WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1
-  GROUP BY [d0].[category], [d1].[region], [d2].[segment]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_v1] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[a1],
-    [s].[a2],
-    [s].[__df_d0] AS [m0],
-    [s].[__df_d1] AS [m1]
-  FROM [__df_scalar_1] AS [s]
-  WHERE [s].[__df_group_count] > 0
-)
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1], [__df_k2]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_k2]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_k1],
+  [b].[__df_k2],
+  MAX([b].[c0]) AS [a0],
+  MAX([b].[c1]) AS [a1],
+  MAX([b].[c2]) AS [a2],
+  SUM(CAST([b].[c3] AS DECIMAL(38, 10))) AS [__df_v0],
+  COUNT_BIG(1) AS [__df_v1],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1], [b].[__df_k2]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0], [__df_k1], [__df_k2]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1], [a].[__df_k2]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[a0],
+  [g].[a1],
+  [g].[a2],
+  [__df_d0].[v] AS [m0],
+  [__df_d1].[v] AS [m1]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+
+CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([g].[__df_v1])) AS [__df_d1] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[a2], [r].[m0], [r].[m1]
-FROM [__df_result] AS [r]
-ORDER BY [r].[m0] DESC, [r].[a1] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[m0] DESC, [r].[a1] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query validation and grouping > compiles no-group totals with one aggregate row and no unreferenced dimension joins 1`] = `
-"WITH [__df_aggregates] AS (
-  SELECT SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v0],
-    COUNT_BIG(*) AS [__df_v1],
-    COUNT_BIG(*) AS [__df_group_count]
-  FROM [dw].[fact_sales] AS [f]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_scalar_1] AS (
-  SELECT [s].*, [s].[__df_v1] AS [__df_d1]
-  FROM [__df_scalar_0] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[__df_d0] AS [m0],
-    [s].[__df_d1] AS [m1]
-  FROM [__df_scalar_1] AS [s]
-)
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [f].[sales] AS [c0],
+    [f].[fact_key] AS [c1],
+  CAST(0 AS INT) AS [__df_k0]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f];
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT CAST(0 AS INT) AS [__df_grain],
+  SUM(CAST([b].[c0] AS DECIMAL(38, 10))) AS [__df_v0],
+  COUNT_BIG(1) AS [__df_v1],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (());
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_grain]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [__df_d0].[v] AS [m0],
+  [__df_d1].[v] AS [m1]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+
+CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
+CROSS APPLY (VALUES ([g].[__df_v1])) AS [__df_d1] ([v]);
 SELECT TOP (@__df_limit) [r].[m0], [r].[m1]
-FROM [__df_result] AS [r];"
+FROM [#df_result] AS [r];
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query validation and grouping > compiles one dimension and excludes Unknown only on its foreign key 1`] = `
-"WITH [__df_aggregates] AS (
-  SELECT [d0].[category] AS [a0],
-    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v0],
-    COUNT_BIG(*) AS [__df_group_count]
-  FROM [dw].[fact_sales] AS [f]
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[category] AS [c0],
+    [f].[sales] AS [c1],
+    [f].[fact_key] AS [c2],
+    [f].[product_key] AS [c3],
+    [d0].[product_key] AS [c4],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
-  WHERE [f].[product_key] <> -1
-  GROUP BY [d0].[category]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[__df_d0] AS [m0]
-  FROM [__df_scalar_0] AS [s]
-  WHERE [s].[__df_group_count] > 0
-)
+WHERE [f].[product_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0]);
+SELECT GROUPING_ID([b].[__df_k0]) AS [__df_grain],
+  [b].[__df_k0],
+  MAX([b].[c0]) AS [a0],
+  SUM(CAST([b].[c1] AS DECIMAL(38, 10))) AS [__df_v0],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[a0],
+  [__df_d0].[v] AS [m0]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+
+CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
+WHERE [g].[__df_group_count] > 0;
 SELECT TOP (@__df_limit) [r].[a0], [r].[m0]
-FROM [__df_result] AS [r]
-ORDER BY [r].[a0] ASC;"
+FROM [#df_result] AS [r]
+ORDER BY [r].[a0] ASC;
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;
 
 exports[`semantic query validation and grouping > returns long pivot rows with a hard 50-column-tuple cap and a truncation signal 1`] = `
-"WITH [__df_aggregates] AS (
-  SELECT [d0].[category] AS [a0],
-    [d1].[region] AS [a1],
-    [d2].[segment] AS [a2],
-    SUM(CAST([f].[sales] AS DECIMAL(38, 10))) AS [__df_v0],
-    COUNT_BIG(*) AS [__df_group_count]
-  FROM [dw].[fact_sales] AS [f]
+"SET NOCOUNT ON;
+DROP TABLE IF EXISTS [#df_pivot];
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+BEGIN TRY
+SELECT [d0].[category] AS [c0],
+    [d1].[region] AS [c1],
+    [d2].[segment] AS [c2],
+    [f].[sales] AS [c3],
+    [f].[fact_key] AS [c4],
+    [f].[product_key] AS [c5],
+    [d0].[product_key] AS [c6],
+    [f].[region_key] AS [c7],
+    [d1].[region_key] AS [c8],
+    [f].[customer_key] AS [c9],
+    [d2].[customer_key] AS [c10],
+  DENSE_RANK() OVER (ORDER BY [d0].[category]) AS [__df_k0],
+  DENSE_RANK() OVER (ORDER BY [d1].[region]) AS [__df_k1],
+  DENSE_RANK() OVER (ORDER BY [d2].[segment]) AS [__df_k2]
+INTO [#df_base]
+FROM [dw].[fact_sales] AS [f]
   LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
   LEFT JOIN [dw].[dim_region] AS [d1] ON [f].[region_key] = [d1].[region_key]
   LEFT JOIN [dw].[dim_customer] AS [d2] ON [f].[customer_key] = [d2].[customer_key]
-  WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1
-  GROUP BY [d0].[category], [d1].[region], [d2].[segment]
-),
-[__df_scalar_0] AS (
-  SELECT [s].*, [s].[__df_v0] AS [__df_d0]
-  FROM [__df_aggregates] AS [s]
-),
-[__df_result] AS (
-  SELECT [s].[a0],
-    [s].[a1],
-    [s].[a2],
-    [s].[__df_d0] AS [m0]
-  FROM [__df_scalar_0] AS [s]
-  WHERE [s].[__df_group_count] > 0
-),
-[__df_ranked] AS (
-  SELECT [r].*, DENSE_RANK() OVER (ORDER BY [r].[a1], [r].[a2]) AS [__df_pivot_rank]
-  FROM [__df_result] AS [r]
-),
-[__df_pivot] AS (
-  SELECT [r].*, MAX([r].[__df_pivot_rank]) OVER () AS [__df_pivot_total]
-  FROM [__df_ranked] AS [r]
-)
+WHERE [f].[product_key] <> -1 AND [f].[region_key] <> -1 AND [f].[customer_key] <> -1;
+CREATE CLUSTERED INDEX [ix_df_base_groups] ON [#df_base] ([__df_k0], [__df_k1], [__df_k2]);
+SELECT GROUPING_ID([b].[__df_k0], [b].[__df_k1], [b].[__df_k2]) AS [__df_grain],
+  [b].[__df_k0],
+  [b].[__df_k1],
+  [b].[__df_k2],
+  MAX([b].[c0]) AS [a0],
+  MAX([b].[c1]) AS [a1],
+  MAX([b].[c2]) AS [a2],
+  SUM(CAST([b].[c3] AS DECIMAL(38, 10))) AS [__df_v0],
+  COUNT_BIG(1) AS [__df_group_count]
+INTO [#df_agg]
+FROM [#df_base] AS [b]
+GROUP BY GROUPING SETS (([b].[__df_k0], [b].[__df_k1], [b].[__df_k2]));
+CREATE CLUSTERED INDEX [ix_df_agg_grain] ON [#df_agg] ([__df_grain], [__df_k0], [__df_k1], [__df_k2]);
+SELECT ROW_NUMBER() OVER (ORDER BY [a].[__df_k0], [a].[__df_k1], [a].[__df_k2]) AS [__df_gid], [a].*
+INTO [#df_groups]
+FROM [#df_agg] AS [a]
+WHERE [a].[__df_grain] = 0;
+CREATE UNIQUE CLUSTERED INDEX [ix_df_groups_id] ON [#df_groups] ([__df_gid]);
+SELECT [g].[a0],
+  [g].[a1],
+  [g].[a2],
+  [__df_d0].[v] AS [m0], DENSE_RANK() OVER (ORDER BY [g].[a1], [g].[a2]) AS [__df_pivot_rank]
+INTO [#df_result]
+FROM [#df_groups] AS [g]
+
+CROSS APPLY (VALUES ([g].[__df_v0])) AS [__df_d0] ([v])
+WHERE [g].[__df_group_count] > 0;
+SELECT [r].*, MAX([r].[__df_pivot_rank]) OVER () AS [__df_pivot_total] INTO [#df_pivot] FROM [#df_result] AS [r];
 SELECT TOP (@__df_limit) [r].[a0], [r].[a1], [r].[a2], [r].[m0], [r].[__df_pivot_total]
-FROM [__df_pivot] AS [r]
+FROM [#df_pivot] AS [r]
 WHERE [r].[__df_pivot_rank] <= 50
-ORDER BY [r].[a0] ASC, [r].[a1] ASC, [r].[a2] ASC;"
+ORDER BY [r].[a0] ASC, [r].[a1] ASC, [r].[a2] ASC;
+DROP TABLE IF EXISTS [#df_pivot];
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+END TRY
+BEGIN CATCH
+DROP TABLE IF EXISTS [#df_pivot];
+DROP TABLE IF EXISTS [#df_result];
+DROP TABLE IF EXISTS [#df_groups];
+DROP TABLE IF EXISTS [#df_agg];
+DROP TABLE IF EXISTS [#df_base];
+THROW;
+END CATCH;"
 `;

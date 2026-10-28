@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { compileQuery } from "@/lib/semantic/query/compile";
 import { semanticQuerySchema } from "@/lib/semantic/query/schema";
+import { assertMaterializedShape } from "./helpers/materialized-shape";
 import type { SemanticModel } from "@/lib/semantic/types";
 import {
   categoryReference,
@@ -162,6 +163,7 @@ describe("Superstore compiler performance", () => {
         rows: [categoryReference(model)],
       });
       expect(expandedFactSources(compiled.sql)).toBe(1);
+      assertMaterializedShape(compiled.sql);
     },
   );
 
@@ -186,9 +188,18 @@ describe("Superstore compiler performance", () => {
     expect(aggregateCalls(base.sql)).toEqual({ sums: 2, distinctCounts: 1 });
     expect(aggregateCalls(derived.sql)).toEqual(aggregateCalls(base.sql));
     expect(expandedFactSources(derived.sql)).toBe(1);
+    assertMaterializedShape(derived.sql);
     // Ratio/rounding/IF work belongs outside the aggregation, not inside a
     // second SELECT reading the fact or the raw-data CTE for each reference.
-    const parts = queryParts(derived.sql);
+    const outputStart = derived.sql.lastIndexOf(
+      "SELECT ",
+      derived.sql.indexOf("INTO [#df_result]"),
+    );
+    const output = derived.sql.slice(
+      outputStart,
+      derived.sql.indexOf("INTO [#df_result]"),
+    );
+    const parts = queryParts(output);
     const marginKey = derived.columns.find(
       (column) => column.name === "Profit Margin %",
     )!.key;
@@ -215,6 +226,7 @@ describe("Superstore compiler performance", () => {
     expect(median(samples)).toBeLessThan(50);
     const compiled = compileQuery(model, input);
     expect(expandedFactSources(compiled.sql)).toBe(1);
+    assertMaterializedShape(compiled.sql);
     // One base SUM, plus two window SUMs over that shared aggregate: category
     // and grand totals must not introduce correlated raw-table reads.
     expect(aggregateCalls(compiled.sql)).toEqual({
@@ -224,5 +236,46 @@ describe("Superstore compiler performance", () => {
     expect([
       ...compiled.sql.matchAll(/\bSUM\([^)]*\)\s+OVER\s*\(/g),
     ]).toHaveLength(2);
+  });
+});
+
+describe("materialized time-query plan shape", () => {
+  const cases = [
+    ["Sales", ["Year"]],
+    ["Sales YTD", ["Year"]],
+    ["Sales LY", ["Year"]],
+    ["Sales YoY %", ["Year"]],
+    ["Sales YoY %", ["Year", "Month"]],
+    ["Sales % of All Years", ["Year"]],
+  ] as const;
+  it.each(cases)("bounds the batch shape for %s by %j", (measure, axes) => {
+    const semantic: SemanticModel = {
+      ...model,
+      version: `${model.version}:time-shape`,
+      measures: [
+        ...model.measures,
+        {
+          ...model.measures[0],
+          id: "shape:all-years",
+          name: "Sales % of All Years",
+          expression:
+            "DIVIDE([Sales], CALCULATE([Sales], ALL(dim_date[Year])))",
+          isAuto: false,
+        },
+      ],
+    };
+    const rows = axes.map((name) => {
+      const table = semantic.tables.find((table) =>
+        table.columns.some((column) => column.name === name),
+      )!;
+      return {
+        table: table.id,
+        column: table.columns.find((column) => column.name === name)!.id,
+      };
+    });
+    const compiled = compileQuery(semantic, { measures: [measure], rows });
+    assertMaterializedShape(compiled.sql);
+    expect(compiled.sql.match(/GROUP BY GROUPING SETS/g)).toHaveLength(1);
+    expect(compiled.sql).not.toContain("__df_scalar_");
   });
 });

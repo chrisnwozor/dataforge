@@ -78,6 +78,7 @@ export const semanticQuerySchema = z
       .strict()
       .optional(),
     hideUnknown: z.boolean().default(true),
+    diagnostics: z.boolean().default(false),
   })
   .strict()
   .superRefine((query, ctx) => {

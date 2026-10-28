@@ -29,6 +29,8 @@ export interface SemanticQuery {
   limit: number;
   topN?: { measure: string; n: number };
   hideUnknown: boolean;
+  /** Opt-in uncached SQL Server STATISTICS TIME diagnostics. */
+  diagnostics?: boolean;
 }
 export interface QueryResultColumn {
   key: string;
@@ -51,6 +53,11 @@ export interface QueryTimings {
   sendToFirstRowMs: number;
   fetchMs: number;
   totalMs: number;
+  /** SQL Server-reported elapsed times; absent unless statistics were received. */
+  sqlCompileMs?: number;
+  sqlExecuteMs?: number;
+  sqlCompileCpuMs?: number;
+  sqlExecuteCpuMs?: number;
 }
 export interface QueryResult {
   columns: QueryResultColumn[];
@@ -71,4 +78,6 @@ export interface CompiledQuery {
   columns: QueryResultColumn[];
   limit: number;
   pivot?: Omit<PivotHint, "columnValues">;
+  diagnostics?: boolean;
+  materialized?: boolean;
 }

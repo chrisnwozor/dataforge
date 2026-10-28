@@ -161,6 +161,9 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
   const [testError, setTestError] = useState("");
   const [testDiagnostics, setTestDiagnostics] =
     useState<QueryFailureDiagnostics | null>(null);
+  const [queryStatisticsRequested, setQueryStatisticsRequested] =
+    useState(false);
+  const [testStatisticsRequested, setTestStatisticsRequested] = useState(false);
   const confirmDialog = useRef<HTMLDialogElement>(null);
   const validationVersion = useRef(0);
   const queryRequest = useRef<AbortController | null>(null);
@@ -448,9 +451,10 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
-  async function runQuery(test: boolean) {
+  async function runQuery(test: boolean, diagnostics = false) {
     if (
       !model ||
+      saving ||
       (test
         ? testing || dirty || !savedDraft
         : querying || !selectedMeasures.length)
@@ -461,11 +465,13 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
     target.current?.abort();
     target.current = controller;
     if (test) {
+      setTestStatisticsRequested(diagnostics);
       setTesting(true);
       setTestError("");
       setTestDiagnostics(null);
       setTestResult(null);
     } else {
+      setQueryStatisticsRequested(diagnostics);
       setQuerying(true);
       setQueryError("");
       setQueryDiagnostics(null);
@@ -490,6 +496,7 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
           orderBy: [],
           limit: 1000,
           hideUnknown,
+          ...(diagnostics ? { diagnostics: true } : {}),
         }),
         signal: controller.signal,
       });
@@ -874,6 +881,11 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                   timings={testDiagnostics.timings}
                   params={testDiagnostics.params}
                   timingLabel="Test value timing breakdown"
+                  statisticsRequested={testStatisticsRequested}
+                  onRunDiagnostics={() => void runQuery(true, true)}
+                  diagnosticsDisabled={
+                    testing || querying || dirty || !savedDraft || saving
+                  }
                 />
               )}
               {testResult && (
@@ -900,6 +912,11 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                     timings={testResult.timings}
                     params={testResult.params}
                     timingLabel="Test value timing breakdown"
+                    statisticsRequested={testStatisticsRequested}
+                    onRunDiagnostics={() => void runQuery(true, true)}
+                    diagnosticsDisabled={
+                      testing || querying || dirty || !savedDraft || saving
+                    }
                   />
                 </>
               )}
@@ -1094,6 +1111,15 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
               }
               timings={queryDiagnostics.timings}
               params={queryDiagnostics.params}
+              statisticsRequested={queryStatisticsRequested}
+              onRunDiagnostics={() => void runQuery(false, true)}
+              diagnosticsDisabled={
+                querying ||
+                testing ||
+                dirty ||
+                saving ||
+                !selectedMeasures.length
+              }
             />
           </div>
         )}
@@ -1158,6 +1184,15 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
               sql={queryResult.sql}
               timings={queryResult.timings}
               params={queryResult.params}
+              statisticsRequested={queryStatisticsRequested}
+              onRunDiagnostics={() => void runQuery(false, true)}
+              diagnosticsDisabled={
+                querying ||
+                testing ||
+                dirty ||
+                saving ||
+                !selectedMeasures.length
+              }
             />
           </div>
         ) : !queryError ? (
@@ -1216,19 +1251,39 @@ function SqlPreview({
   params,
   timings,
   timingLabel = "Query timing breakdown",
+  statisticsRequested = false,
+  onRunDiagnostics,
+  diagnosticsDisabled = false,
 }: {
   title: string;
   sql: string;
   params?: ExpressionValidation["params"];
   timings?: QueryTimings;
   timingLabel?: string;
+  statisticsRequested?: boolean;
+  onRunDiagnostics?: () => void;
+  diagnosticsDisabled?: boolean;
 }) {
   return (
-    <details className={styles.sql}>
+    <details className={styles.sql} open={statisticsRequested || undefined}>
       <summary>
         {title}
         <span>T-SQL</span>
       </summary>
+      {onRunDiagnostics && (
+        <div className={styles.diagnosticsAction}>
+          <p>Compare SQL Server planning and execution with the app timings.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRunDiagnostics}
+            disabled={diagnosticsDisabled}
+            title="Run the current selection without the result cache and collect SQL Server timings."
+          >
+            <Clock3 size={12} /> Run diagnostics
+          </Button>
+        </div>
+      )}
       <pre tabIndex={0} aria-label={title}>
         <code>{sql}</code>
       </pre>
@@ -1240,14 +1295,20 @@ function SqlPreview({
           </pre>
         </div>
       )}
-      {timings && <TimingBreakdown timings={timings} label={timingLabel} />}
+      {timings && (
+        <TimingBreakdown
+          timings={timings}
+          label={timingLabel}
+          statisticsRequested={statisticsRequested}
+        />
+      )}
     </details>
   );
 }
 
 const timingPhases: readonly [keyof QueryTimings, string][] = [
   ["parseMs", "Parse"],
-  ["compileMs", "Compile"],
+  ["compileMs", "Node compile"],
   ["cacheLookupMs", "Cache lookup"],
   ["poolAcquireMs", "Pool acquire"],
   ["connectMs", "Connect / login"],
@@ -1259,10 +1320,19 @@ const timingPhases: readonly [keyof QueryTimings, string][] = [
 function TimingBreakdown({
   timings,
   label,
+  statisticsRequested,
 }: {
   timings: QueryTimings;
   label: string;
+  statisticsRequested: boolean;
 }) {
+  const sqlPhases: [keyof QueryTimings, string, keyof QueryTimings][] = [
+    ["sqlCompileMs", "SQL compile", "sqlCompileCpuMs"],
+    ["sqlExecuteMs", "SQL execute", "sqlExecuteCpuMs"],
+  ];
+  const showSqlStatistics =
+    statisticsRequested ||
+    sqlPhases.some(([key]) => timings[key] !== undefined);
   return (
     <section className={styles.timing} aria-label={label}>
       <div className={styles.timingHeader}>
@@ -1270,10 +1340,19 @@ function TimingBreakdown({
         <span>Phases over 2 seconds are flagged.</span>
       </div>
       <dl className={styles.timingGrid}>
-        {timingPhases.map(([key, label]) => {
+        {[
+          ...timingPhases.map(
+            ([key, label]) => [key, label, undefined] as const,
+          ),
+          ...(showSqlStatistics ? sqlPhases : []),
+        ].map(([key, label, cpuKey]) => {
           const milliseconds = timings[key];
-          const available = Number.isFinite(milliseconds) && milliseconds >= 0;
+          const available =
+            typeof milliseconds === "number" &&
+            Number.isFinite(milliseconds) &&
+            milliseconds >= 0;
           const slow = available && milliseconds > 2_000;
+          const cpu = cpuKey ? timings[cpuKey] : undefined;
           return (
             <div key={key} className={slow ? styles.timingSlow : undefined}>
               <dt>{label}</dt>
@@ -1285,6 +1364,17 @@ function TimingBreakdown({
                       })} ms`
                     : "Unavailable"}
                 </span>
+                {typeof cpu === "number" &&
+                  Number.isFinite(cpu) &&
+                  cpu >= 0 && (
+                    <small className={styles.sqlCpu}>
+                      CPU{" "}
+                      {cpu.toLocaleString("en-US", {
+                        maximumFractionDigits: 2,
+                      })}{" "}
+                      ms
+                    </small>
+                  )}
                 {slow && (
                   <span className={styles.timingFlag}>
                     <AlertCircle size={11} aria-hidden="true" /> Slow phase
@@ -1295,6 +1385,14 @@ function TimingBreakdown({
           );
         })}
       </dl>
+      {showSqlStatistics && (
+        <p className={styles.sqlStatisticsNote}>
+          SQL timings are reported by SQL Server.{" "}
+          {sqlPhases.some(([key]) => timings[key] === undefined)
+            ? "Some statistics were not reported for this request."
+            : "CPU time is shown separately from elapsed time."}
+        </p>
+      )}
     </section>
   );
 }

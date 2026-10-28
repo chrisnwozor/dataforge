@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "csv-parse/sync";
 import { compileQuery } from "@/lib/semantic/query/compile";
+import { executeMaterializedSqlite } from "./helpers/materialized-sqlite";
 import type {
   SemanticColumn,
   SemanticMeasure,
@@ -211,33 +212,19 @@ beforeEach(() => {
 });
 afterEach(() => db.close());
 
-/**
- * A relational oracle, not a SQL Server integration or execution-plan test.
- * These numeric/null queries use the SQL common to both engines; only COUNT_BIG
- * and the final parameterized TOP are translated. Date functions are excluded.
- */
+/** Execute the generated batch through the documented SQL dialect adapter. */
 function execute(input: unknown, semanticModel = model) {
   const compiled = compileQuery(semanticModel, input);
-  const sql = compiled.sql
-    .replace(/\bCOUNT_BIG\s*\(/g, "COUNT(")
-    .replace(/SELECT TOP \(@__df_limit\)/, "SELECT")
-    .replace(/;\s*$/, "\nLIMIT @__df_limit;");
-  const params = Object.fromEntries(
-    compiled.params.map((param) => [
-      `@${param.name}`,
-      typeof param.value === "boolean" ? Number(param.value) : param.value,
-    ]),
+  return executeMaterializedSqlite(db, compiled).map((row) =>
+    Object.fromEntries(
+      compiled.columns.map((column) => [
+        column.name,
+        row[column.key] as QueryValue,
+      ]),
+    ),
   );
-  const rows = db
-    .prepare(sql)
-    .all(params)
-    .map((row) =>
-      Object.fromEntries(
-        compiled.columns.map((col) => [col.name, row[col.key] as QueryValue]),
-      ),
-    );
-  return rows;
 }
+
 function close(actual: QueryValue | undefined, expected: number | null) {
   if (expected === null) expect(actual).toBeNull();
   else expect(Number(actual)).toBeCloseTo(expected, 9);

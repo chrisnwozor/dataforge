@@ -161,6 +161,14 @@ vi.mock("@/lib/server/query-transport", () => ({
       connectMs: 100,
       sendToFirstRowMs: 3000,
       fetchMs: 96,
+      ...(compiled.diagnostics
+        ? {
+            sqlCompileMs: 978,
+            sqlCompileCpuMs: 31,
+            sqlExecuteMs: 39,
+            sqlExecuteCpuMs: 8,
+          }
+        : {}),
     });
     if (state.clock !== undefined) state.clock += 3200;
     if (state.failure) throw state.failure;
@@ -205,6 +213,28 @@ afterEach(() => {
 });
 
 describe("semantic execution and query endpoints", () => {
+  it("runs diagnostics live without reading or replacing a normal cached result", async () => {
+    const input = { measures: ["sales"], rows: [] };
+    const ordinary = await runSemanticQuery(projectId, input);
+    expect(ordinary.timings).not.toHaveProperty("sqlCompileMs");
+    const diagnostic = await POST(
+      request({ ...input, diagnostics: true }),
+      context,
+    );
+    expect(diagnostic.status).toBe(200);
+    expect(await diagnostic.json()).toMatchObject({
+      fromCache: false,
+      timings: { sqlCompileMs: 978, sqlCompileCpuMs: 31, sqlExecuteMs: 39 },
+    });
+    expect(state.calls.at(-1)?.diagnostics).toBe(true);
+    expect(state.calls).toHaveLength(2);
+    expect((await runSemanticQuery(projectId, input)).fromCache).toBe(true);
+    await runSemanticQuery(projectId, { ...input, diagnostics: true });
+    expect(state.calls).toHaveLength(3);
+    expect(
+      (await POST(request({ ...input, diagnostics: "true" }), context)).status,
+    ).toBe(400);
+  });
   it("reports this cache lookup's duration instead of the original SQL execution time", async () => {
     state.clock = 0;
     const clock = vi
