@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SemanticModel } from "@/lib/semantic/types";
 import type { CompiledQuery } from "@/lib/semantic/query/types";
-import { HttpError } from "@/lib/server/http";
+import type { QueryTimings } from "@/lib/semantic/query/types";
 import { semanticCache } from "@/lib/semantic/query/cache";
 import {
   getDistinctValues,
@@ -19,6 +19,8 @@ const state = vi.hoisted(() => ({
   rows: 1,
   failure: undefined as Error | undefined,
   changeInFlight: false,
+  modelReads: 0,
+  clock: undefined as number | undefined,
 }));
 
 const model: SemanticModel = {
@@ -131,7 +133,11 @@ vi.mock("@/lib/server/semantic", async () => {
         run: { id: state.runId },
       };
     },
-    getSemanticModel: async () => ({ ...model, version: state.version }),
+    getSemanticModel: async () => {
+      state.modelReads++;
+      return { ...model, version: state.version };
+    },
+    readSemanticStamp: () => state.version,
   };
 });
 vi.mock("@/lib/server/connection", () => ({
@@ -143,8 +149,20 @@ vi.mock("@/lib/server/model-http", () => ({
 }));
 vi.mock("@/lib/server/query-transport", () => ({
   QueryAbortedError: class QueryAbortedError extends Error {},
-  executeCompiledQuery: async (_settings: unknown, compiled: CompiledQuery) => {
+  executeCompiledQuery: async (
+    _settings: unknown,
+    compiled: CompiledQuery,
+    _signal?: AbortSignal,
+    report?: (timings: Partial<QueryTimings>) => void,
+  ) => {
     state.calls.push(compiled);
+    report?.({
+      poolAcquireMs: 4,
+      connectMs: 100,
+      sendToFirstRowMs: 3000,
+      fetchMs: 96,
+    });
+    if (state.clock !== undefined) state.clock += 3200;
     if (state.failure) throw state.failure;
     if (state.changeInFlight) state.version = "changed-while-query-ran";
     return Array.from({ length: state.rows }, (_, index) =>
@@ -178,31 +196,63 @@ beforeEach(() => {
   state.rows = 1;
   state.failure = undefined;
   state.changeInFlight = false;
+  state.modelReads = 0;
+  state.clock = undefined;
+  vi.spyOn(console, "info").mockImplementation(() => {});
+});
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("semantic execution and query endpoints", () => {
   it("reports this cache lookup's duration instead of the original SQL execution time", async () => {
+    state.clock = 0;
     const clock = vi
       .spyOn(performance, "now")
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(10)
-      .mockReturnValueOnce(3210)
-      .mockReturnValueOnce(4000)
-      .mockReturnValueOnce(4000.25);
+      .mockImplementation(() => state.clock!);
+    const originalGet = semanticCache.get.bind(semanticCache);
+    vi.spyOn(semanticCache, "get").mockImplementation((key) => {
+      state.clock! += 0.25;
+      return originalGet(key);
+    });
     try {
       const first = await runSemanticQuery(projectId, {
         measures: ["sales"],
         rows: [],
       });
       expect(first.fromCache).toBe(false);
-      expect(first.elapsedMs).toBe(3200);
+      expect(first.elapsedMs).toBe(3200.25);
+      expect(first.timings).toMatchObject({
+        cacheLookupMs: 0.25,
+        connectMs: 100,
+        poolAcquireMs: 4,
+        sendToFirstRowMs: 3000,
+        fetchMs: 96,
+        totalMs: 3200.25,
+      });
+      expect(state.modelReads).toBe(1);
       const cached = await runSemanticQuery(projectId, {
         measures: ["sales"],
         rows: [],
       });
       expect(cached.fromCache).toBe(true);
       expect(cached.elapsedMs).toBe(0.25);
+      expect(cached.timings).toMatchObject({
+        cacheLookupMs: 0.25,
+        connectMs: 0,
+        poolAcquireMs: 0,
+        sendToFirstRowMs: 0,
+        fetchMs: 0,
+        totalMs: 0.25,
+      });
+      expect(state.modelReads).toBe(2);
       expect(state.calls).toHaveLength(1);
+      const logs = vi
+        .mocked(console.info)
+        .mock.calls.map(([line]) => JSON.parse(String(line)));
+      expect(logs[0].slowPhases).toContain("sendToFirstRowMs");
+      expect(logs[1].fromCache).toBe(true);
+      expect(JSON.stringify(logs)).not.toMatch(/stored-password|SELECT|Region/);
     } finally {
       clock.mockRestore();
     }
@@ -360,7 +410,11 @@ describe("semantic execution and query endpoints", () => {
         { measures: ["sales"], rows: [] },
         AbortSignal.abort(),
       ),
-    ).rejects.toEqual(new HttpError(499, "The query was cancelled."));
+    ).rejects.toMatchObject({
+      status: 499,
+      message: "The query was cancelled.",
+      queryTimings: expect.objectContaining({ connectMs: 0, poolAcquireMs: 0 }),
+    });
     expect(state.calls).toHaveLength(0);
   });
 });

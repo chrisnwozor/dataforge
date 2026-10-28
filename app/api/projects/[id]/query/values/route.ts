@@ -1,4 +1,9 @@
-import { errorResponse, HttpError } from "@/lib/server/http";
+import { HttpError } from "@/lib/server/http";
+import {
+  addQueryPhase,
+  queryErrorResponse,
+  startQueryTiming,
+} from "@/lib/server/query-timing";
 import {
   requireModelProject,
   type ProjectModelContext,
@@ -12,8 +17,13 @@ export async function GET(
   request: Request,
   context: ProjectModelContext,
 ): Promise<Response> {
+  const timing = startQueryTiming();
+  let id = "unknown";
+  let parseStart: number | undefined;
+  let parsed = false;
   try {
-    const id = await requireModelProject(context);
+    id = await requireModelProject(context);
+    parseStart = performance.now();
     const params = new URL(request.url).searchParams;
     if (
       [...params.keys()].some(
@@ -32,16 +42,28 @@ export async function GET(
     const hide = params.get("hideUnknown");
     if (hide !== null && hide !== "true" && hide !== "false")
       throw new HttpError(400, "hideUnknown must be true or false.");
+    addQueryPhase(timing, "parseMs", parseStart);
+    parsed = true;
     return Response.json(
-      await getDistinctValues(id, attribute, request.signal, hide !== "false"),
+      await getDistinctValues(
+        id,
+        attribute,
+        request.signal,
+        hide !== "false",
+        timing,
+      ),
       {
         headers: { "Cache-Control": "no-store" },
       },
     );
   } catch (error) {
-    return errorResponse(
+    if (parseStart !== undefined && !parsed)
+      addQueryPhase(timing, "parseMs", parseStart);
+    return queryErrorResponse(
       error,
       "Distinct values could not be loaded. Try again.",
+      timing,
+      id,
     );
   }
 }

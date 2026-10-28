@@ -82,6 +82,21 @@ async function derive(projectId: string) {
 const hash = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
+/** Cheap in-flight invalidation check; do not derive and validate the whole model a second time. */
+export function readSemanticStamp(projectId: string): string {
+  const row = getDatabase()
+    .prepare(
+      `
+    SELECT p.updated_at AS projectUpdatedAt, m.updated_at AS modelUpdatedAt,
+      s.revision AS semanticRevision
+    FROM projects AS p LEFT JOIN models AS m ON m.project_id = p.id
+    LEFT JOIN semantic_state AS s ON s.project_id = p.id WHERE p.id = ?
+  `,
+    )
+    .get(projectId);
+  return JSON.stringify(row ?? null);
+}
+
 function readDefinitions(projectId: string): {
   measures: SemanticMeasure[];
   hierarchies: SemanticHierarchy[];

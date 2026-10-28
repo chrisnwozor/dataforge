@@ -42,6 +42,16 @@ export interface PivotHint {
   measureKeys: string[];
   columnValues: QueryValue[][];
 }
+export interface QueryTimings {
+  parseMs: number;
+  compileMs: number;
+  cacheLookupMs: number;
+  poolAcquireMs: number;
+  connectMs: number;
+  sendToFirstRowMs: number;
+  fetchMs: number;
+  totalMs: number;
+}
 export interface QueryResult {
   columns: QueryResultColumn[];
   rows: Record<string, QueryValue>[];
@@ -50,7 +60,10 @@ export interface QueryResult {
   elapsedMs: number;
   fromCache: boolean;
   sql: string;
+  params?: SqlParameter[];
   pivot?: PivotHint;
+  /** Absent only on older responses; new query responses include every phase. */
+  timings?: QueryTimings;
 }
 export interface CompiledQuery {
   sql: string;

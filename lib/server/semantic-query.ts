@@ -19,8 +19,19 @@ import type { SemanticModel } from "@/lib/semantic/types";
 import { redactSecrets } from "@/lib/runner/secrets";
 import { readPublicConnection, friendlyConnectionError } from "./connection";
 import { HttpError } from "./http";
-import { getSemanticModel, requireSemanticReady } from "./semantic";
+import {
+  getSemanticModel,
+  readSemanticStamp,
+  requireSemanticReady,
+} from "./semantic";
 import { executeCompiledQuery, QueryAbortedError } from "./query-transport";
+import {
+  addQueryPhase,
+  finishQueryTiming,
+  recordQueryFailure,
+  startQueryTiming,
+  type QueryTimingContext,
+} from "./query-timing";
 
 function serializable(value: unknown, date: boolean): QueryValue {
   if (value === null || value === undefined) return null;
@@ -79,6 +90,7 @@ function resultFromRows(
     elapsedMs,
     fromCache: false,
     sql: compiled.sql,
+    params: compiled.params,
     ...(pivot ? { pivot } : {}),
   };
 }
@@ -142,59 +154,95 @@ async function executeCached(
   input: unknown | ((model: SemanticModel) => unknown),
   build: (model: SemanticModel) => CompiledQuery,
   signal?: AbortSignal,
+  timing: QueryTimingContext = startQueryTiming(),
 ): Promise<QueryResult> {
-  if (signal?.aborted) throw new HttpError(499, "The query was cancelled.");
-  const ready = await requireSemanticReady(projectId);
-  const model = await getSemanticModel(projectId);
-  const connectionVersion = readPublicConnection().updatedAt ?? "";
-  const namespace = normalizedJson([
-    ready.run.id,
-    model.version,
-    connectionVersion,
-  ]);
-  semanticCache.useNamespace(projectId, namespace);
-  let compiled: CompiledQuery;
+  let password = "";
   try {
-    compiled = build(model);
-  } catch (error) {
-    compilationError(error);
-  }
-  const cacheInput = typeof input === "function" ? input(model) : input;
-  const key = resultCacheKey(
-    projectId,
-    ready.run.id,
-    model.version,
-    cacheInput,
-    connectionVersion,
-  );
-  const cacheStart = performance.now();
-  const cached = semanticCache.get(key);
-  if (cached)
-    return {
-      ...cached,
-      fromCache: true,
-      elapsedMs: Math.round((performance.now() - cacheStart) * 100) / 100,
-    };
-  const start = performance.now();
-  try {
-    const rows = await executeCompiledQuery(ready.settings, compiled, signal);
-    const result = resultFromRows(
-      compiled,
-      rows,
-      Math.round((performance.now() - start) * 100) / 100,
+    if (signal?.aborted) throw new HttpError(499, "The query was cancelled.");
+    const metadataStart = performance.now();
+    let ready: ReturnType<typeof requireSemanticReady>;
+    let model: SemanticModel;
+    let stamp: string;
+    try {
+      ready = await requireSemanticReady(projectId);
+      password = ready.settings.password;
+      model = await getSemanticModel(projectId);
+      stamp = readSemanticStamp(projectId);
+    } finally {
+      addQueryPhase(timing, "compileMs", metadataStart);
+    }
+    const connectionVersion = readPublicConnection().updatedAt ?? "";
+    semanticCache.useNamespace(
+      projectId,
+      normalizedJson([ready.run.id, model.version, connectionVersion]),
     );
-    // Avoid caching an old snapshot if a load/semantic edit finished in flight.
+    const cacheInput = typeof input === "function" ? input(model) : input;
+    const cacheStart = performance.now();
+    const key = resultCacheKey(
+      projectId,
+      ready.run.id,
+      model.version,
+      cacheInput,
+      connectionVersion,
+    );
+    const cached = semanticCache.get(key);
+    addQueryPhase(timing, "cacheLookupMs", cacheStart);
+    if (cached) {
+      timing.sql = cached.sql;
+      timing.params = cached.params;
+      const timings = finishQueryTiming(timing, projectId, "succeeded", true);
+      return {
+        ...cached,
+        fromCache: true,
+        elapsedMs: timings.totalMs,
+        timings,
+      };
+    }
+    // Cache hits skip SQL compilation entirely. Metadata validation is still required to gate access.
+    const compileStart = performance.now();
+    let compiled: CompiledQuery;
+    try {
+      compiled = build(model);
+    } catch (error) {
+      compilationError(error);
+    } finally {
+      addQueryPhase(timing, "compileMs", compileStart);
+    }
+    timing.sql = compiled.sql;
+    timing.params = compiled.params;
+    const rows = await executeCompiledQuery(
+      ready.settings,
+      compiled,
+      signal,
+      (phases) => {
+        for (const phase of [
+          "poolAcquireMs",
+          "connectMs",
+          "sendToFirstRowMs",
+          "fetchMs",
+        ] as const)
+          if (typeof phases[phase] === "number")
+            timing.timings[phase] = Math.max(0, phases[phase]!);
+      },
+    );
+    const result = resultFromRows(compiled, rows, 0);
+    // Check cheap revisions instead of deriving/parsing the complete semantic model twice per query.
     const current = await requireSemanticReady(projectId);
-    const currentModel = await getSemanticModel(projectId);
     if (
       current.run.id === ready.run.id &&
-      currentModel.version === model.version &&
+      readSemanticStamp(projectId) === stamp &&
       (readPublicConnection().updatedAt ?? "") === connectionVersion
     )
       semanticCache.set(key, result, projectId);
-    return result;
+    const timings = finishQueryTiming(timing, projectId, "succeeded");
+    return { ...result, elapsedMs: timings.totalMs, timings };
   } catch (error) {
-    executionError(error, ready.settings.password, signal);
+    try {
+      executionError(error, password, signal);
+    } catch (failure) {
+      recordQueryFailure(failure, timing, projectId);
+      throw failure;
+    }
   }
 }
 
@@ -202,18 +250,30 @@ export async function runSemanticQuery(
   projectId: string,
   input: unknown,
   signal?: AbortSignal,
+  timing: QueryTimingContext = startQueryTiming(),
 ): Promise<QueryResult> {
   let normalized;
+  const parseStart = performance.now();
   try {
-    normalized = normalizeQuery(input);
+    try {
+      normalized = normalizeQuery(input);
+    } finally {
+      addQueryPhase(timing, "parseMs", parseStart);
+    }
   } catch (error) {
-    compilationError(error);
+    try {
+      compilationError(error);
+    } catch (failure) {
+      recordQueryFailure(failure, timing, projectId);
+      throw failure;
+    }
   }
   return executeCached(
     projectId,
     { kind: "query", query: normalized },
     (model) => compileQuery(model, normalized),
     signal,
+    timing,
   );
 }
 
@@ -261,6 +321,7 @@ export async function getDistinctValues(
   attribute: unknown,
   signal?: AbortSignal,
   hideUnknown = true,
+  timing: QueryTimingContext = startQueryTiming(),
 ): Promise<QueryResult> {
   return executeCached(
     projectId,
@@ -276,5 +337,6 @@ export async function getDistinctValues(
         hideUnknown,
       ),
     signal,
+    timing,
   );
 }
