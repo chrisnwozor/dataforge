@@ -27,7 +27,7 @@ export default async function RunsPage({
           </Link>
         }
       />
-      <RunsTable runs={await getRuns(id)} />
+      <RunsTable projectId={id} runs={await getRuns(id)} />
     </main>
   );
 }

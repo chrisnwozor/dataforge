@@ -2254,3 +2254,439 @@ select {
   max-height: 440px;
   overflow: auto;
 }
+
+.connection-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.connection-intro {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 0 0 20px;
+}
+.connection-secret-note {
+  margin: 0 0 22px;
+  align-items: flex-start;
+  line-height: 1.7;
+  font-size: 11px;
+}
+.connection-secret-note svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.connection-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  gap: 18px 16px;
+}
+.connection-form-grid input {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+.connection-form-grid > div:nth-child(3),
+.connection-form-grid > div:nth-child(4),
+.connection-full-width {
+  grid-column: 1 / -1;
+}
+.connection-password {
+  display: flex;
+  gap: 8px;
+}
+.connection-password > input {
+  flex: 1;
+}
+.connection-password > button {
+  height: 38px;
+  width: 38px;
+  flex-shrink: 0;
+}
+.connection-security-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+  margin: 23px 0 0;
+}
+.connection-security-options label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+.connection-response {
+  margin: 18px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.connection-test-success > p {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--green);
+}
+.connection-test-success details {
+  margin-top: 8px;
+  color: var(--muted);
+}
+.connection-test-success summary {
+  cursor: pointer;
+}
+.connection-test-success pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  line-height: 1.8;
+}
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connection-footer {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+@media (max-width: 520px) {
+  .connection-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connection-actions {
+    width: 100%;
+  }
+  .connection-actions > button {
+    flex: 1;
+  }
+}
+
+/* Real execution status, live logs, and run history. */
+.run-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.run-status-badge > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.run-status-succeeded {
+  color: var(--green);
+}
+.run-status-failed {
+  color: var(--red);
+}
+.run-status-running,
+.run-status-queued {
+  color: var(--amber);
+}
+.run-history-id.button {
+  padding: 0;
+  min-height: 0;
+  max-width: 205px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+}
+.run-detail-sheet {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  width: min(740px, 100vw);
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  border: 0;
+  border-left: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  padding: 28px;
+  overflow: auto;
+}
+.run-detail-sheet::backdrop,
+.run-confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+.run-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.run-sheet-header h2 {
+  margin: 7px 0 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.run-panel-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.run-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 24px 0;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.run-meta-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  min-width: 0;
+}
+.run-meta-grid span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.run-meta-grid strong {
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.run-steps h3,
+.run-rejections h3,
+.run-log-heading h3 {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 23px 0 12px;
+}
+.run-steps ol {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.run-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.run-step-succeeded > svg {
+  color: var(--green);
+}
+.run-step-failed > svg {
+  color: var(--red);
+}
+.run-step-running > svg {
+  color: var(--amber);
+}
+.run-step-file {
+  flex: 1;
+  color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.run-step small {
+  display: block;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 9px;
+  color: var(--muted);
+  padding-top: 4px;
+}
+.run-step-state {
+  text-align: right;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.run-log-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+}
+.run-log-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0;
+}
+.run-live-logs {
+  height: 290px;
+  max-height: 40dvh;
+  min-height: 150px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+}
+.run-live-logs .log-line {
+  display: grid;
+  grid-template-columns: 92px 60px 1fr;
+  gap: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-bottom: 7px;
+}
+.run-live-logs .log-line > span {
+  color: inherit;
+  margin-right: 0;
+}
+.run-log-warn {
+  color: var(--amber);
+}
+.run-log-error {
+  color: var(--red);
+}
+.run-log-success {
+  color: var(--green);
+}
+.run-live-logs time {
+  color: var(--subtle);
+  font-size: 9px;
+}
+.run-panel-error {
+  margin: 16px 0;
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--red);
+  overflow-wrap: anywhere;
+}
+.run-panel-error strong {
+  width: 100%;
+}
+.run-panel-error > span {
+  flex: 1;
+  min-width: 0;
+}
+.run-panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 18px 0 24px;
+}
+.run-panel-actions .help-text {
+  max-width: 430px;
+}
+.run-final-summary {
+  margin: 22px 0;
+}
+.run-final-summary .panel-header h3 {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 0;
+}
+.run-final-summary .panel-body {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.run-final-summary .panel-body > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.run-final-summary span {
+  font-size: 9px;
+  color: var(--muted);
+}
+.run-final-summary strong {
+  font:
+    14px var(--font-geist-mono),
+    monospace;
+  font-weight: 400;
+}
+.run-reject-json {
+  display: block;
+  font-size: 9px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 310px;
+}
+.run-rejections td {
+  vertical-align: top;
+  white-space: normal;
+  font-size: 10px;
+}
+.run-rejections td:nth-child(2) {
+  min-width: 150px;
+}
+.run-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.run-confirm-dialog {
+  width: min(460px, calc(100vw - 32px));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  padding: 25px;
+}
+.run-confirm-dialog h2 {
+  font-size: 18px;
+  margin: 0 0 18px;
+}
+.run-confirm-dialog .detail-row {
+  gap: 15px;
+}
+.run-confirm-dialog .detail-row strong {
+  font-size: 11px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.run-confirm-notice {
+  margin: 18px 0 10px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.run-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 23px;
+}
+@media (max-width: 600px) {
+  .run-detail-sheet {
+    padding: 20px 15px;
+  }
+  .run-sheet-header h2 {
+    max-width: 260px;
+    font-size: 12px;
+  }
+  .run-final-summary .panel-body {
+    grid-template-columns: 1fr 1fr;
+  }
+  .run-live-logs .log-line {
+    grid-template-columns: 70px 52px 1fr;
+    gap: 5px;
+  }
+  .run-live-logs time {
+    font-size: 8px;
+  }
+  .run-panel-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

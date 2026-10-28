@@ -1,8 +1,12 @@
 import { PageHeader } from "@/components/shared";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { SettingsForm } from "@/components/settings-form";
+import { readPublicConnection } from "@/lib/server/connection";
 export const metadata = { title: "Settings" };
-export default function SettingsPage() {
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export default async function SettingsPage() {
+  const connection = readPublicConnection();
   return (
     <>
       <WorkspaceTabs active="settings" />
@@ -18,7 +22,7 @@ export default function SettingsPage() {
             <a href="#schema">Warehouse defaults</a>
             <a href="#appearance">Appearance</a>
           </nav>
-          <SettingsForm />
+          <SettingsForm initialConnection={connection} />
         </div>
       </main>
     </>

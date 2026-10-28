@@ -24,6 +24,9 @@ export interface GenerationOptions {
   dedupe: boolean;
   database: string;
   generatedAt: string;
+  /** Server-only execution bindings; never accepted by generation query APIs. */
+  runId?: string;
+  filePath?: string;
 }
 
 export interface SqlGenerationInput {

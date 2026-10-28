@@ -22,6 +22,7 @@ import {
 } from "@/components/shared";
 import { buttonVariants } from "@/components/ui/button";
 import { number } from "@/lib/utils";
+import { readPublicConnection } from "@/lib/server/connection";
 export const metadata = { title: "Project overview" };
 export default async function Overview({
   params,
@@ -34,8 +35,15 @@ export default async function Overview({
     getActivity(id),
   ]);
   if (!project) notFound();
+  const connection = readPublicConnection();
   const next =
-    project.stage < 2 ? "profile" : project.stage === 2 ? "model" : "generate";
+    project.stage < 2
+      ? "profile"
+      : project.stage === 2
+        ? "model"
+        : project.stage >= 4
+          ? "runs"
+          : "generate";
   return (
     <main className="container">
       <Link href="/projects" className="back-link" style={{ marginBottom: 20 }}>
@@ -94,12 +102,14 @@ export default async function Overview({
         <div className="panel-header">
           <h2>Your data pipeline</h2>
           <span className="small muted">
-            {project.stage === 4
+            {project.stage === 5
               ? "Ready to run again"
-              : "Next up: " +
-                ["upload", "profile", "model", "generate", "run"][
-                  project.stage
-                ]}
+              : project.stage === 4
+                ? "Run in progress or ready to review"
+                : "Next up: " +
+                  ["upload", "profile", "model", "generate", "run"][
+                    project.stage
+                  ]}
           </span>
         </div>
         <div className="panel-body">
@@ -130,7 +140,7 @@ export default async function Overview({
                 profile: ScanLine,
               }[a.kind];
               return (
-                <div className="activity-row" key={a.kind}>
+                <div className="activity-row" key={a.id ?? a.kind}>
                   <span className="activity-symbol">
                     <Icon size={12} />
                   </span>
@@ -156,8 +166,13 @@ export default async function Overview({
             {[
               ["Source file", project.sourceName],
               ["Source type", project.sourceType],
-              ["Target", "SQL Server 2022"],
-              ["Default schema", "warehouse"],
+              [
+                "Target",
+                connection.configured
+                  ? `${connection.server}:${connection.port} / ${connection.database}`
+                  : "Configure in Settings",
+              ],
+              ["Schemas", "stg · dw · etl"],
               ["Environment", "Local workspace"],
             ].map(([label, value]) => (
               <div className="detail-row" key={label}>
@@ -179,11 +194,11 @@ export default async function Overview({
       <div className="info-banner">
         <History size={15} />
         <span>
-          Upload, profiling, modeling, and SQL generation use your source file.
-          Run history remains a preview for now.
+          Upload, profiling, modeling, and SQL execution use your source file.
+          Run history records your actual loads, logs, and rejected rows.
         </span>
         <Link href={`/projects/${id}/runs`}>
-          Explore run history <ArrowRight size={12} />
+          View run history <ArrowRight size={12} />
         </Link>
       </div>
     </main>

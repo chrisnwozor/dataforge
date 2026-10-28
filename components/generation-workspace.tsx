@@ -2,12 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Check, Loader2, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Info,
+  Loader2,
+  Play,
+  RefreshCw,
+} from "lucide-react";
 import type { GenerationResponse } from "@/lib/server/generation";
 import type { Model } from "@/lib/modeling/types";
+import type { PublicConnection } from "@/lib/server/connection";
+import { isTerminalRun, type RunRecord } from "@/lib/runner/types";
 import { CodeViewer } from "./code-viewer";
 import { GenerateControls } from "./generate-controls";
 import { Button } from "./ui/button";
+import { RunPanel } from "./run-panel";
 
 function databaseError(value: string): string {
   if (!value.trim()) return "Enter a target database name.";
@@ -20,9 +30,13 @@ function databaseError(value: string): string {
 export function GenerationWorkspace({
   projectId,
   initialGeneration,
+  initialConnection,
+  initialActiveRun,
 }: {
   projectId: string;
   initialGeneration: GenerationResponse;
+  initialConnection: PublicConnection;
+  initialActiveRun: RunRecord | null;
 }) {
   const [generation, setGeneration] = useState(initialGeneration);
   const [incremental, setIncremental] = useState(
@@ -34,6 +48,19 @@ export function GenerationWorkspace({
   const [dedupeSaving, setDedupeSaving] = useState(false);
   const [dedupeUnsaved, setDedupeUnsaved] = useState(false);
   const [error, setError] = useState("");
+  const [connection, setConnection] = useState(initialConnection);
+  const [activeRun, setActiveRun] = useState(initialActiveRun);
+  const [selectedRun, setSelectedRun] = useState<string | null>(
+    initialActiveRun?.id ?? null,
+  );
+  const [confirmingRun, setConfirmingRun] = useState(false);
+  const [confirmationTarget, setConfirmationTarget] =
+    useState<PublicConnection | null>(null);
+  const [startingRun, setStartingRun] = useState(false);
+  const [runError, setRunError] = useState("");
+  const runDialog = useRef<HTMLDialogElement>(null);
+  const runRequest = useRef(false);
+  const completedRuns = useRef(new Set<string>());
   const optionsRef = useRef({ incremental, database });
   const generationRef = useRef(initialGeneration);
   const pendingPreference = useRef<boolean | null>(null);
@@ -270,11 +297,70 @@ export function GenerationWorkspace({
     };
   }, [modelEndpoint, loadGeneration]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    let refreshing = false;
+    async function refreshExecution() {
+      if (refreshing || document.visibilityState !== "visible") return;
+      refreshing = true;
+      try {
+        const [settings, history] = await Promise.all([
+          fetch("/api/settings/connection", {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+          fetch(`/api/projects/${encodeURIComponent(projectId)}/runs`, {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+        ]);
+        if (settings.ok) {
+          const value = (await settings.json()) as {
+            connection: PublicConnection;
+          };
+          if (!controller.signal.aborted) setConnection(value.connection);
+        }
+        if (history.ok) {
+          const value = (await history.json()) as { runs: RunRecord[] };
+          if (!controller.signal.aborted)
+            setActiveRun(
+              value.runs.find(
+                (run) =>
+                  !isTerminalRun(run.status) &&
+                  !completedRuns.current.has(run.id),
+              ) ?? null,
+            );
+        }
+      } catch {
+        // A failed status refresh never enables an unsafe Run action.
+      } finally {
+        refreshing = false;
+      }
+    }
+    const interval = setInterval(() => void refreshExecution(), 3000);
+    const focus = () => void refreshExecution();
+    window.addEventListener("focus", focus);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+      window.removeEventListener("focus", focus);
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (confirmingRun && runDialog.current && !runDialog.current.open)
+      runDialog.current.showModal();
+    else if (!confirmingRun) runDialog.current?.close();
+  }, [confirmingRun]);
+
   const modelErrors = generation.validation.filter(
     (issue) => issue.severity === "error",
   );
   const modelWarnings = generation.validation.filter(
     (issue) => issue.severity === "warning",
+  );
+  const modelInfo = generation.validation.filter(
+    (issue) => issue.severity === "info",
   );
   const staleOptions =
     generation.options.incremental !== incremental ||
@@ -293,6 +379,113 @@ export function GenerationWorkspace({
     dedupe: String(dedupe),
     db: database.trim(),
   });
+  const connectionMismatch = connection.database !== database.trim();
+  const runDisabledReason = !connection.configured
+    ? connection.configurationError ||
+      "Configure a SQL Server connection in Settings before running a load."
+    : connectionMismatch
+      ? "The target database must match the saved connection in Settings."
+      : activeRun
+        ? "A run is already active for this project."
+        : modelErrors.length
+          ? "Resolve the model errors before running a load."
+          : downloadsDisabled
+            ? "Wait for the current options and model to finish saving and generating."
+            : startingRun
+              ? "A run is being started."
+              : "";
+  const effectiveIncremental =
+    incremental &&
+    !generation.validation.some(
+      (issue) => issue.code === "incremental-without-date",
+    );
+  const confirmationStale =
+    confirmationTarget?.updatedAt !== connection.updatedAt;
+  const updateRun = useCallback((run: RunRecord) => {
+    if (isTerminalRun(run.status)) completedRuns.current.add(run.id);
+    setActiveRun((previous) =>
+      isTerminalRun(run.status)
+        ? previous?.id === run.id
+          ? null
+          : previous
+        : run,
+    );
+  }, []);
+
+  async function startRun() {
+    if (
+      runRequest.current ||
+      runDisabledReason ||
+      !confirmationTarget ||
+      confirmationStale
+    )
+      return;
+    runRequest.current = true;
+    setStartingRun(true);
+    setRunError("");
+    try {
+      const settingsResponse = await fetch("/api/settings/connection", {
+        cache: "no-store",
+      });
+      const latest = (await settingsResponse.json()) as {
+        connection?: PublicConnection;
+        error?: string;
+      };
+      if (!settingsResponse.ok || !latest.connection)
+        throw new Error(
+          latest.error || "The saved connection could not be checked.",
+        );
+      if (
+        !latest.connection.configured ||
+        latest.connection.updatedAt !== confirmationTarget.updatedAt
+      ) {
+        setConnection(latest.connection);
+        throw new Error(
+          "Connection settings changed. Review the target and confirm the load again.",
+        );
+      }
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/runs`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            incremental,
+            dedupe,
+            db: database.trim(),
+            connectionUpdatedAt: confirmationTarget.updatedAt,
+          }),
+        },
+      );
+      const value = (await response.json()) as {
+        runId?: string;
+        run?: RunRecord;
+        activeRunId?: string;
+        error?: string;
+      };
+      if (response.status === 409 && value.activeRunId) {
+        setSelectedRun(value.activeRunId);
+        setConfirmingRun(false);
+        return;
+      }
+      if (!response.ok || !value.runId)
+        throw new Error(
+          value.error || "The load could not be started. Try again.",
+        );
+      if (value.run) setActiveRun(value.run);
+      setSelectedRun(value.runId);
+      setConfirmingRun(false);
+    } catch (failure) {
+      setRunError(
+        failure instanceof Error
+          ? failure.message
+          : "The server could not be reached. Try again.",
+      );
+    } finally {
+      runRequest.current = false;
+      setStartingRun(false);
+    }
+  }
 
   return (
     <>
@@ -316,17 +509,25 @@ export function GenerationWorkspace({
           </>
         )}
       </div>
-      {(modelErrors.length > 0 || modelWarnings.length > 0) && (
+      {(modelErrors.length > 0 ||
+        modelWarnings.length > 0 ||
+        modelInfo.length > 0) && (
         <div
           className="info-banner generate-validation-banner"
           role={modelErrors.length ? "alert" : "status"}
         >
-          <AlertTriangle size={16} />
+          {modelErrors.length || modelWarnings.length ? (
+            <AlertTriangle size={16} />
+          ) : (
+            <Info size={16} />
+          )}
           <div>
             <strong>
               {modelErrors.length
                 ? "Resolve model errors before downloading."
-                : "Review your model warnings."}
+                : modelWarnings.length
+                  ? "Review your model warnings."
+                  : "Load notes"}
             </strong>
             <ul>
               {generation.validation.map((issue, index) => (
@@ -372,8 +573,101 @@ export function GenerationWorkspace({
           onDedupeChange={(value) => void savePreference(value)}
           onDatabaseChange={changeDatabase}
           cleanedUrl={`/api/projects/${encodeURIComponent(projectId)}/source/cleaned`}
+          runDisabledReason={runDisabledReason}
+          startingRun={startingRun}
+          connectionConfigured={connection.configured}
+          connectionServer={connection.server}
+          activeRun={activeRun}
+          onRun={() => {
+            setRunError("");
+            setConfirmationTarget(connection);
+            setConfirmingRun(true);
+          }}
+          onOpenActiveRun={() => {
+            if (activeRun) setSelectedRun(activeRun.id);
+          }}
         />
       </div>
+      <dialog
+        ref={runDialog}
+        className="run-confirm-dialog"
+        aria-labelledby="run-confirm-title"
+        onCancel={(event) => {
+          if (startingRun) event.preventDefault();
+          else setConfirmingRun(false);
+        }}
+      >
+        <h2 id="run-confirm-title">Run this load?</h2>
+        <div className="detail-row">
+          <span>Server</span>
+          <strong className="mono">
+            {confirmationTarget?.server}:{confirmationTarget?.port}
+          </strong>
+        </div>
+        <div className="detail-row">
+          <span>Database</span>
+          <strong className="mono">{database.trim()}</strong>
+        </div>
+        <div className="detail-row">
+          <span>Mode</span>
+          <strong>
+            {effectiveIncremental ? "Incremental" : "Full refresh"}
+          </strong>
+        </div>
+        <p className="run-confirm-notice">
+          This will create or modify objects in [{database.trim()}].
+        </p>
+        {incremental && !effectiveIncremental && (
+          <p className="help-text">
+            No source date is available; this run uses a full refresh.
+          </p>
+        )}
+        {!effectiveIncremental && (
+          <p className="help-text">
+            Full refresh replaces the existing fact rows.
+          </p>
+        )}
+        {runError && (
+          <p className="inline-error" role="alert">
+            {runError}
+          </p>
+        )}
+        {confirmationStale && (
+          <p className="inline-error" role="alert">
+            Connection settings changed. Keep reviewing, then reopen this
+            confirmation to approve the current target.
+          </p>
+        )}
+        <div className="run-confirm-actions">
+          <Button
+            variant="outline"
+            disabled={startingRun}
+            onClick={() => setConfirmingRun(false)}
+          >
+            Keep reviewing
+          </Button>
+          <Button
+            disabled={startingRun || !!runDisabledReason || confirmationStale}
+            onClick={() => void startRun()}
+          >
+            {startingRun ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Play size={13} />
+            )}
+            {startingRun ? "Starting…" : "Confirm run"}
+          </Button>
+        </div>
+      </dialog>
+      {selectedRun && (
+        <RunPanel
+          key={selectedRun}
+          projectId={projectId}
+          runId={selectedRun}
+          onClose={() => setSelectedRun(null)}
+          onRunChange={updateRun}
+        />
+      )}
     </>
   );
 }

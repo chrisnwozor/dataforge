@@ -70,7 +70,7 @@ export interface SuggestionInput {
 }
 
 export interface ModelValidationIssue {
-  severity: "error" | "warning";
+  severity: "error" | "warning" | "info";
   code: string;
   message: string;
 }
