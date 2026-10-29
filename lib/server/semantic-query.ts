@@ -290,7 +290,7 @@ export async function runSemanticQuery(
   input: unknown,
   signal?: AbortSignal,
   timing: QueryTimingContext = startQueryTiming(),
-  options: { priority?: "main" | "totals" | "dashboard" | "report" | "reportScheduled" } = {},
+  options: { priority?: "main" | "totals" | "dashboard" | "report" | "reportScheduled" | "checks" } = {},
 ): Promise<QueryResult> {
   if (!localMode()) requireProjectAccess(projectId, "viewer");
   let normalized;

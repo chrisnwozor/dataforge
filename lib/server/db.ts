@@ -1,3 +1,4 @@
+import { migrateVerification } from "@/lib/verify/migrations";
 import { migrateAccounts } from "@/lib/auth/migrations";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
@@ -327,6 +328,7 @@ export function getDatabase(): DatabaseSync {
           "ALTER TABLE semantic_hierarchies ADD COLUMN is_auto INTEGER NOT NULL DEFAULT 0 CHECK (is_auto IN (0, 1))",
         );
       migrateAccounts(database);
+      migrateVerification(database);
       database.exec("COMMIT");
       database.exec("PRAGMA foreign_keys = ON");
     } catch (error) {

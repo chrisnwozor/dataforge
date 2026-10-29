@@ -1,3 +1,4 @@
+import { scheduleChecksAfterSuccessfulLoad } from "@/lib/server/verification-auto";
 import { createJobAccess, localMode, requireProjectAccess } from "@/lib/auth/context";
 import { auditEvent } from "@/lib/auth/audit";
 import { randomUUID } from "node:crypto";
@@ -445,6 +446,7 @@ async function executeJob(
     stopWatching();
     jobs.delete(job.run.id);
     job.connection.password = "";
+    if(!failure && !job.cancelled) scheduleChecksAfterSuccessfulLoad(job.run.projectId,job.run.id);
   }
 }
 

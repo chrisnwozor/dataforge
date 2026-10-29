@@ -1,4 +1,4 @@
-import { buildExploreRequests, type ExploreTotals } from "@/components/explore/use-explore-query";
+import { buildExploreRequests, type ExploreTotals } from "@/lib/explore/requests";
 import type { ViewConfig } from "@/lib/explore/config";
 import type { QueryFilter, QueryResult, SemanticQuery } from "@/lib/semantic/query/types";
 import type { SemanticModel } from "@/lib/semantic/types";

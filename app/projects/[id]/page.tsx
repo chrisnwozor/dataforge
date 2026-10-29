@@ -1,3 +1,4 @@
+import { OverviewDataChecksCard } from "@/components/checks/overview-card";
 import { requireProjectAccess } from "@/lib/auth/context";
 import { withProjectPage } from "@/lib/auth/guards";
 import Link from "next/link";
@@ -127,6 +128,7 @@ async function Overview({
         </div>
       </section>}
       {editable && <PrepareQuality projectId={id} />}
+      {editable && <OverviewDataChecksCard projectId={id} />}
       <div className="overview-grid">
         <section className="panel">
           <div className="panel-header">
