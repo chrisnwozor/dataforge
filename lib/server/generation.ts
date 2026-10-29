@@ -8,6 +8,7 @@ import { validateModel } from "@/lib/modeling/validate";
 import { getOrCreateModel } from "./models";
 import { ensureProjectEvidence, readColumnProfiles } from "./projects";
 import { HttpError } from "./http";
+import { hasStoredPipeline } from "./prepare-storage";
 
 export const databaseNameSchema = z
   .string()
@@ -280,6 +281,10 @@ export async function getGeneration(
     options instanceof URLSearchParams
       ? parseGenerationQuery(options)
       : checkedOptions(options);
+  if (hasStoredPipeline(projectId)) {
+    const { requirePreparedProfile } = await import("./prepare");
+    await requirePreparedProfile(projectId);
+  }
   const project = await ensureProjectEvidence(projectId);
   const saved = await getOrCreateModel(projectId);
   const columns: SqlColumn[] = readColumnProfiles(projectId).map((column) => ({

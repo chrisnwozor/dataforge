@@ -18,11 +18,12 @@ import {
   PageHeader,
   StatCard,
   StatusBadge,
-  PipelineStepper,
 } from "@/components/shared";
+import { PreparationStepper, PrepareQuality } from "@/components/prepare-quality";
 import { buttonVariants } from "@/components/ui/button";
 import { number } from "@/lib/utils";
 import { readPublicConnection } from "@/lib/server/connection";
+import { readPipeline } from "@/lib/server/prepare-storage";
 export const metadata = { title: "Project overview" };
 export default async function Overview({
   params,
@@ -36,8 +37,12 @@ export default async function Overview({
   ]);
   if (!project) notFound();
   const connection = readPublicConnection();
+  const preparation = readPipeline(id);
+  const needsPreparation = !!preparation && (preparation.status === "queued" || preparation.status === "running" || preparation.profiledVersion !== preparation.version);
   const next =
-    project.stage < 2
+    needsPreparation
+      ? "prepare"
+      : project.stage < 2
       ? "profile"
       : project.stage === 2
         ? "model"
@@ -70,13 +75,13 @@ export default async function Overview({
         <StatCard
           label="Total rows"
           value={number(project.rows)}
-          detail="Rows in the uploaded dataset"
+          detail="Rows in the current prepared profile"
           icon={<FileSpreadsheet size={14} />}
         />
         <StatCard
           label="Columns"
           value={String(project.columns)}
-          detail="Inferred from source"
+          detail="Columns in the prepared profile"
           icon={<Columns3 size={14} />}
         />
         <StatCard
@@ -84,7 +89,7 @@ export default async function Overview({
           value={
             project.duplicateRows == null ? "—" : number(project.duplicateRows)
           }
-          detail="Extra occurrences of identical source rows"
+          detail="Extra occurrences of identical prepared rows"
           icon={<Copy size={14} />}
         />
         <StatCard
@@ -102,7 +107,9 @@ export default async function Overview({
         <div className="panel-header">
           <h2>Your data pipeline</h2>
           <span className="small muted">
-            {project.stage === 5
+            {needsPreparation
+              ? "Finish preparation before continuing"
+              : project.stage === 5
               ? "Ready to run again"
               : project.stage === 4
                 ? "Run in progress or ready to review"
@@ -113,9 +120,10 @@ export default async function Overview({
           </span>
         </div>
         <div className="panel-body">
-          <PipelineStepper current={project.stage} />
+          <PreparationStepper projectId={id} stage={project.stage} />
         </div>
       </section>
+      <PrepareQuality projectId={id} />
       <div className="overview-grid">
         <section className="panel">
           <div className="panel-header">
@@ -194,8 +202,8 @@ export default async function Overview({
       <div className="info-banner">
         <History size={15} />
         <span>
-          Upload, profiling, modeling, and SQL execution use your source file.
-          Run history records your actual loads, logs, and rejected rows.
+          Sources and preparation produce the dataset used by profiling, modeling,
+          and SQL execution. Run history records actual loads and rejected rows.
         </span>
         <Link href={`/projects/${id}/runs`}>
           View run history <ArrowRight size={12} />

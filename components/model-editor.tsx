@@ -41,6 +41,7 @@ import type { ColumnProfile } from "@/lib/types";
 import type { Aggregation, Dimension, Model } from "@/lib/modeling/types";
 import { modelReducer, type ModelAction } from "@/lib/modeling/editor";
 import { validateModel } from "@/lib/modeling/validate";
+import { removeMissingPreparedAssignments } from "@/lib/prepare/reconcile-model";
 import { Button, buttonVariants } from "./ui/button";
 import { SelectMenu } from "./select-menu";
 import {
@@ -927,6 +928,16 @@ export function ModelEditor({
                       ` · ${notes.length} ${notes.length === 1 ? "note" : "notes"}`}
                   </span>
                 </h2>
+                {issues.some((issue) => issue.code === "unknown-column") && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={regenerating}
+                    onClick={() => edit({ type: "replace", model: removeMissingPreparedAssignments(modelRef.current, columns.map((column) => column.id)) })}
+                  >
+                    Remove missing assignments
+                  </Button>
+                )}
                 {issues.length ? (
                   <ul>
                     {issues.map((issue, index) => (

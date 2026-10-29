@@ -27,6 +27,7 @@ export interface RunRecord {
   errorNumber: number | null;
   errorLine: number | null;
   options: RunOptions;
+  prepareSummary?: import("@/lib/prepare/types").PipelineSummary;
 }
 
 export interface RunStep {

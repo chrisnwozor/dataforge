@@ -1,0 +1,6 @@
+Customer ID,Customer Name,Segment,Region
+C001,  aLEX   MORGAN  ,consumer, east
+C002,jAMIE CHEN,corporate,WEST
+C003,morgan taylor,home office,Central
+C003,Duplicate Customer,consumer,South
+C004,  PAT RIVERA ,,North

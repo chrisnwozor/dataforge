@@ -289,28 +289,28 @@ class ProfileAccumulator {
     }
   }
 
-  finish(delimiter: string): ProfileResult {
+  finish(delimiter: string, allowEmpty = false, declaredTypes?: ReadonlyMap<string, InferredType>): ProfileResult {
     if (!this.columns.length)
       throw new Error(
         "The file is empty. Include a header row and at least one data row.",
       );
-    if (!this.rowCount)
+    if (!this.rowCount && !allowEmpty)
       throw new Error("The file contains column headers but no data rows.");
     const columns: ProfileColumn[] = this.columns.map((column, ordinal) => {
-      const inferredType = inferType(column.inference);
+      const inferredType = declaredTypes?.get(column.name) ?? inferType(column.inference);
       const bounds = column.bounds[inferredType];
       return {
         ordinal,
         name: column.name,
         inferredType,
-        nullPct: Math.round((column.nulls / this.rowCount) * 10_000) / 100,
+        nullPct: this.rowCount ? Math.round((column.nulls / this.rowCount) * 10_000) / 100 : 0,
         nullCount: column.nulls,
         distinctCount: column.distinct.size,
         duplicateCount: column.nonNulls - column.distinct.size,
         minValue: bounds?.minRaw ?? null,
         maxValue: bounds?.maxRaw ?? null,
         isKeyCandidate:
-          column.nulls === 0 && column.distinct.size === column.nonNulls,
+          this.rowCount > 0 && column.nulls === 0 && column.distinct.size === column.nonNulls,
         isNearKeyCandidate:
           column.nulls === 0 &&
           column.distinct.size < column.nonNulls &&
@@ -382,8 +382,11 @@ export function detectDelimiter(sample: string): string {
   return candidates[selected];
 }
 
-async function profileCsv(filePath: string): Promise<ProfileResult> {
-  const source = createReadStream(filePath);
+export interface ProfileFileOptions { signal?: AbortSignal; onProgress?: (rows: number) => void | Promise<void>; allowEmpty?: boolean; columnTypes?: ReadonlyMap<string, InferredType> }
+async function profileCsv(filePath: string, options: ProfileFileOptions = {}): Promise<ProfileResult> {
+  options.signal?.throwIfAborted();
+  const source = createReadStream(filePath, { signal: options.signal });
+  const closed = new Promise<void>((resolve) => source.once("close", resolve));
   const iterator = source[Symbol.asyncIterator]();
   try {
     const first = await iterator.next();
@@ -440,17 +443,24 @@ async function profileCsv(filePath: string): Promise<ProfileResult> {
     const controller = new AbortController();
     const reading = (async () => {
       try {
-        for await (const record of parser) accumulator.add(record as string[]);
+        let rows = -1;
+        for await (const record of parser) {
+          options.signal?.throwIfAborted();
+          accumulator.add(record as string[]); rows++;
+          if (rows > 0 && rows % 5_000 === 0) await options.onProgress?.(rows);
+        }
       } catch (error) {
         controller.abort();
         throw error;
       }
     })();
     await Promise.all([
-      pipeline(Readable.from(chunks()), parser, { signal: controller.signal }),
+      pipeline(Readable.from(chunks()), parser, { signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal }),
       reading,
     ]);
-    return accumulator.finish(delimiter);
+    const result = accumulator.finish(delimiter, options.allowEmpty, options.columnTypes);
+    await options.onProgress?.(result.rowCount);
+    return result;
   } catch (error) {
     if (
       error instanceof Error &&
@@ -461,6 +471,7 @@ async function profileCsv(filePath: string): Promise<ProfileResult> {
     throw error;
   } finally {
     source.destroy();
+    await closed;
   }
 }
 
@@ -477,7 +488,7 @@ function crc32(bytes: Buffer): number {
 }
 
 /** Validate the exact ZIP directory and bounded actual output before SheetJS can decompress anything. */
-async function checkWorkbookArchive(filePath: string): Promise<Buffer> {
+export async function checkWorkbookArchive(filePath: string): Promise<Buffer> {
   const archive = await readFile(filePath);
   const invalid = () =>
     new Error(
@@ -652,12 +663,14 @@ export async function readFirstWorksheet(
   return { sheet, range };
 }
 
-async function profileXlsx(filePath: string): Promise<ProfileResult> {
+async function profileXlsx(filePath: string, options: ProfileFileOptions = {}): Promise<ProfileResult> {
+  options.signal?.throwIfAborted();
   const { sheet, range } = await readFirstWorksheet(filePath);
   const XLSX = await import("xlsx");
   const accumulator = new ProfileAccumulator();
   // Walk worksheet cells directly rather than creating a second full matrix in memory.
   for (let row = range.s.r; row <= range.e.r; row++) {
+    options.signal?.throwIfAborted();
     const values: unknown[] = [];
     let hasValue = false;
     for (let col = range.s.c; col <= range.e.c; col++) {
@@ -669,14 +682,19 @@ async function profileXlsx(filePath: string): Promise<ProfileResult> {
       values.push(value);
     }
     if (hasValue) accumulator.add(values);
+    if ((row - range.s.r) % 5_000 === 0) {
+      await options.onProgress?.(row - range.s.r);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
   }
-  return accumulator.finish("xlsx");
+  return accumulator.finish("xlsx", options.allowEmpty, options.columnTypes);
 }
 
 /** Server-only filesystem profiling; CSV records are consumed in a single streamed pass. */
 export async function profileFile(
   filePath: string,
   sourceType: "CSV" | "XLSX",
+  options: ProfileFileOptions = {},
 ): Promise<ProfileResult> {
-  return sourceType === "CSV" ? profileCsv(filePath) : profileXlsx(filePath);
+  return sourceType === "CSV" ? profileCsv(filePath, options) : profileXlsx(filePath, options);
 }

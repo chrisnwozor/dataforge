@@ -1,0 +1,8 @@
+import { requirePreparationProject, preparationErrorResponse, type PreparationContext } from "@/lib/server/prepare-http";
+import { readQuality } from "@/lib/server/prepare";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export async function GET(request: Request, context: PreparationContext): Promise<Response> {
+  try { return Response.json(readQuality(await requirePreparationProject(context), new URL(request.url).searchParams.get("runId") ?? undefined), { headers: { "Cache-Control": "no-store" } }); }
+  catch (error) { return preparationErrorResponse(error, "Quality results could not be loaded."); }
+}

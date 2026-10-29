@@ -116,6 +116,10 @@ export async function getProject(id: string): Promise<Project | undefined> {
   return project ? toProject(await ensureProjectEvidence(id)) : undefined;
 }
 export async function getColumnProfiles(id: string): Promise<ColumnProfile[]> {
+  if (findProject(id)) {
+    const { hasStoredPipeline } = await import("@/lib/server/prepare-storage");
+    if (hasStoredPipeline(id)) await (await import("@/lib/server/prepare")).requirePreparedProfile(id);
+  }
   if (findProject(id)) await ensureProjectEvidence(id);
   return readColumnProfiles(id).map((column) => ({
     id: String(column.ordinal),
@@ -136,6 +140,10 @@ export async function getColumnProfiles(id: string): Promise<ColumnProfile[]> {
   }));
 }
 export async function getProfileReport(id: string) {
+  if (findProject(id)) {
+    const { hasStoredPipeline } = await import("@/lib/server/prepare-storage");
+    if (hasStoredPipeline(id)) await (await import("@/lib/server/prepare")).requirePreparedProfile(id);
+  }
   if (findProject(id)) await ensureProjectEvidence(id);
   return readProfileReport(id);
 }

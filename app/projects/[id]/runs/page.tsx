@@ -4,6 +4,7 @@ import { getRuns } from "@/lib/data";
 import { PageHeader } from "@/components/shared";
 import { RunsTable } from "@/components/runs-table";
 import { buttonVariants } from "@/components/ui/button";
+import { PreparationHistory } from "@/components/prepare-quality";
 export const metadata = { title: "Run history" };
 export default async function RunsPage({
   params,
@@ -28,6 +29,7 @@ export default async function RunsPage({
         }
       />
       <RunsTable projectId={id} runs={await getRuns(id)} />
+      <PreparationHistory projectId={id} />
     </main>
   );
 }
