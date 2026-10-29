@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { errorResponse } from "@/lib/server/http";
 import { getSemanticModel, requireSemanticReady, saveSemanticModel } from "@/lib/server/semantic";
 import {
@@ -7,7 +8,7 @@ import {
 } from "@/lib/server/semantic-http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET(
+async function handleGET(
   _request: Request,
   context: SemanticProjectContext,
 ): Promise<Response> {
@@ -23,7 +24,7 @@ export async function GET(
     );
   }
 }
-export async function PUT(
+async function handlePUT(
   request: Request,
   context: SemanticProjectContext,
 ): Promise<Response> {
@@ -41,3 +42,6 @@ export async function PUT(
     );
   }
 }
+
+export const GET = withProjectRoute("viewer", handleGET);
+export const PUT = withProjectRoute("editor", handlePUT);

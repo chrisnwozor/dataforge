@@ -1,9 +1,10 @@
+import { withProjectPage } from "@/lib/auth/guards";
 import { PageHeader } from "@/components/shared";
 import { MeasuresWorkspace } from "@/components/measures-workspace";
 
 export const metadata = { title: "Measures" };
 
-export default async function MeasuresPage({
+async function MeasuresPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -20,3 +21,5 @@ export default async function MeasuresPage({
     </main>
   );
 }
+
+export default withProjectPage("editor", MeasuresPage);

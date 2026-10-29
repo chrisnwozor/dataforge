@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { currentWorkspaceId, requireProjectFileAccess, localMode, requireProjectAccess } from "@/lib/auth/context";
+import { existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import type { SQLOutputValue } from "node:sqlite";
 import type {
   InferredType,
@@ -54,7 +55,31 @@ export const PROJECT_ID_PATTERN =
 export function projectUploadDirectory(projectId: string): string {
   if (!PROJECT_ID_PATTERN.test(projectId))
     throw new Error("Invalid project ID.");
-  return join(dataDirectory(), "uploads", projectId);
+  const workspaceId = requireProjectFileAccess(projectId);
+  const legacy = join(dataDirectory(), "uploads", projectId);
+  // Existing local files remain usable; all new authenticated uploads use tenant folders.
+  if (localMode() || (workspaceId === "00000000-0000-4000-8000-000000000001" && existsSync(legacy))) return legacy;
+  return join(dataDirectory(), "workspaces", workspaceId, "uploads", projectId);
+}
+
+export function projectUploadSegments(projectId: string): string[] {
+  return relative(dataDirectory(), projectUploadDirectory(projectId)).split(sep);
+}
+
+/** Only server-generated UUID folders may be created; no symlink parents. */
+export function createProjectUploadDirectory(projectId: string): string {
+  const directory=projectUploadDirectory(projectId);
+  const segments=projectUploadSegments(projectId);
+  let parent=dataDirectory();
+  mkdirSync(/* turbopackIgnore: true */ parent,{recursive:true});
+  for(const segment of segments.slice(0,-1)){
+    parent=join(/* turbopackIgnore: true */ parent,segment);
+    try{mkdirSync(/* turbopackIgnore: true */ parent);}catch(error){if((error as NodeJS.ErrnoException).code!=="EEXIST")throw error;}
+    const stat=lstatSync(/* turbopackIgnore: true */ parent);
+    if(!stat.isDirectory()||stat.isSymbolicLink())throw new HttpError(422,"Uploads must stay in regular workspace directories.");
+  }
+  mkdirSync(/* turbopackIgnore: true */ directory,{mode:0o700});
+  return directory;
 }
 
 export function listProjects(): StoredProject[] {
@@ -65,14 +90,15 @@ export function listProjects(): StoredProject[] {
       status, row_count AS rowCount, column_count AS columnCount,
       duplicate_row_count AS duplicateRowCount, total_null_cells AS totalNullCells,
       created_at AS createdAt, updated_at AS updatedAt
-    FROM projects ORDER BY updated_at DESC, created_at DESC, id ASC
+    FROM projects WHERE workspace_id = ? ORDER BY updated_at DESC, created_at DESC, id ASC
   `,
     )
-    .all() as ProjectRow[];
+    .all(currentWorkspaceId()) as ProjectRow[];
   return rows.map((row) => ({ ...row }));
 }
 
 export function findProject(projectId: string): StoredProject | undefined {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   if (!PROJECT_ID_PATTERN.test(projectId)) return undefined;
   const row = getDatabase()
     .prepare(
@@ -105,6 +131,7 @@ interface ColumnRow extends Omit<
 }
 
 export function readColumnProfiles(projectId: string): StoredColumnProfile[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   if (!PROJECT_ID_PATTERN.test(projectId)) return [];
   const rows = getDatabase()
     .prepare(
@@ -131,6 +158,7 @@ export function readColumnProfiles(projectId: string): StoredColumnProfile[] {
 }
 
 export function readProfileReport(projectId: string): ProfileReport {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const prepared = getDatabase().prepare("SELECT profile_report FROM project_pipelines WHERE project_id = ?").get(projectId);
   if (prepared?.profile_report) return JSON.parse(String(prepared.profile_report)) as ProfileReport;
   const contents = readFileSync(
@@ -142,6 +170,7 @@ export function readProfileReport(projectId: string): ProfileReport {
 
 /** Publish one prepared generation atomically, without discarding compatible model edits. */
 export function publishPreparedProfile(projectId: string, version: number, profile: ProfileResult, filePath: string, explicitTypes: ReadonlyMap<string, InferredType> = new Map()): boolean {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const database = getDatabase();
   return withTransaction(database, () => {
     const pipeline = database.prepare("SELECT version, missing_columns FROM project_pipelines WHERE project_id = ?").get(projectId);
@@ -178,9 +207,9 @@ export function saveProjectProfile(
 ): StoredProject {
   const database = getDatabase();
   const insertProject = database.prepare(`
-    INSERT INTO projects (id, name, source_file, source_type, status, row_count,
+    INSERT INTO projects (workspace_id, id, name, source_file, source_type, status, row_count,
       column_count, duplicate_row_count, total_null_cells, created_at, updated_at)
-    VALUES (@id, @name, @sourceFile, @sourceType, @status, @rowCount,
+    VALUES (@workspaceId, @id, @name, @sourceFile, @sourceType, @status, @rowCount,
       @columnCount, @duplicateRowCount, @totalNullCells, @createdAt, @updatedAt)
   `);
   const insertColumn = database.prepare(`
@@ -194,6 +223,7 @@ export function saveProjectProfile(
   insertColumn.setAllowBareNamedParameters(true);
   withTransaction(database, () => {
     insertProject.run({
+      workspaceId: currentWorkspaceId("editor"),
       id: project.id,
       name: project.name,
       sourceFile: project.sourceFile,
@@ -250,6 +280,7 @@ const evidenceBackfills = new Map<string, Promise<StoredProject>>();
 export async function ensureProjectEvidence(
   projectId: string,
 ): Promise<StoredProject> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const project = findProject(projectId);
   if (!project) throw new ProjectNotFoundError("Project not found.");
   let report: ProfileReport | undefined;
@@ -343,6 +374,7 @@ export function updateColumnOverrides(
   projectId: string,
   overrides: ColumnOverride[],
 ): StoredColumnProfile[] {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const database = getDatabase();
   const update = database.prepare(`
     UPDATE column_profiles SET override_type = ? WHERE project_id = ? AND ordinal = ?
@@ -365,4 +397,25 @@ export function updateColumnOverrides(
       .run(new Date().toISOString(), projectId);
   });
   return readColumnProfiles(projectId);
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  requireProjectAccess(projectId,"editor");
+  const database=getDatabase();
+  if(database.prepare("SELECT 1 FROM runs WHERE project_id=? AND status IN ('queued','running')").get(projectId) || database.prepare("SELECT 1 FROM pipeline_quality_runs WHERE project_id=? AND status IN ('queued','running')").get(projectId) || database.prepare("SELECT 1 FROM report_runs rr JOIN reports r ON r.id=rr.report_id WHERE r.project_id=? AND rr.status IN ('queued','running')").get(projectId))throw new HttpError(409,"Cancel active loads, preparation and report jobs before deleting this project.");
+  const directory=projectUploadDirectory(projectId);
+  // Resolve/report checks still need their parent records before the cascading delete.
+  const {removeReportExports}=await import("./report-files");
+  for(const report of database.prepare("SELECT id FROM reports WHERE project_id=?").all(projectId))removeReportExports(String(report.id));
+  const {auditEvent}=await import("@/lib/auth/audit");
+  withTransaction(database,()=>{auditEvent("project.deleted","project",projectId);database.prepare("DELETE FROM projects WHERE id=? AND workspace_id=?").run(projectId,currentWorkspaceId("editor"));});
+  // A final symlink is unlinked by rm; parent segments are verified before removal.
+  let parent=dataDirectory();
+  for(const segment of relative(dataDirectory(),directory).split(sep).slice(0,-1)){
+    parent=join(/* turbopackIgnore: true */ parent,segment);
+    if(!existsSync(/* turbopackIgnore: true */ parent))return;
+    const info=lstatSync(/* turbopackIgnore: true */ parent);
+    if(info.isSymbolicLink()||!info.isDirectory())return;
+  }
+  await (await import("node:fs/promises")).rm(/* turbopackIgnore: true */ directory,{recursive:true,force:true});
 }

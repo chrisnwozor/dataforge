@@ -56,10 +56,10 @@ export class DashboardSaveController {
 export function documentOf(saved: SavedDashboard): DashboardDocument {
   return { name: saved.name, description: saved.description, layout: saved.layout, filters: saved.filters, settings: saved.settings };
 }
-export function useDashboardSave(projectId: string, initial: SavedDashboard, document: DashboardDocument) {
+export function useDashboardSave(projectId: string, initial: SavedDashboard, document: DashboardDocument, enabled = true) {
   const controller = useMemo(() => new DashboardSaveController(`/api/projects/${encodeURIComponent(projectId)}/dashboards/${encodeURIComponent(initial.id)}`, initial), [projectId, initial]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
-  useEffect(() => { controller.configure(document); }, [controller, document]);
+  useEffect(() => { if(enabled) controller.configure(document); }, [controller, document, enabled]);
   useEffect(() => () => controller.dispose(), [controller]);
   return { ...state, retry: controller.retry };
 }

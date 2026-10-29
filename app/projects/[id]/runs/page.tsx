@@ -1,3 +1,4 @@
+import { withProjectPage } from "@/lib/auth/guards";
 import Link from "next/link";
 import { Terminal } from "lucide-react";
 import { getRuns } from "@/lib/data";
@@ -6,7 +7,7 @@ import { RunsTable } from "@/components/runs-table";
 import { buttonVariants } from "@/components/ui/button";
 import { PreparationHistory } from "@/components/prepare-quality";
 export const metadata = { title: "Run history" };
-export default async function RunsPage({
+async function RunsPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -33,3 +34,5 @@ export default async function RunsPage({
     </main>
   );
 }
+
+export default withProjectPage("editor", RunsPage);

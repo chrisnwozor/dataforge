@@ -1,3 +1,5 @@
+import { projectUploadSegments } from "./projects";
+import { localMode, requireProjectAccess } from "@/lib/auth/context";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
@@ -36,10 +38,13 @@ async function ensureProjectSources(projectId: string): Promise<void> {
   await (await import("./prepare-storage")).ensureDefaultPipeline(projectId);
 }
 export function listStoredSources(projectId: string): StoredSource[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   return getDatabase().prepare(`${sourceSelect} WHERE project_id = ? ORDER BY created_at, id`).all(checkedId(projectId)).map(sourceRow);
 }
-export async function listSources(projectId: string): Promise<StoredSource[]> { await ensureProjectSources(projectId); return listStoredSources(projectId); }
+export async function listSources(projectId: string): Promise<StoredSource[]> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer"); await ensureProjectSources(projectId); return listStoredSources(projectId); }
 export async function getSource(projectId: string, sourceId: string): Promise<StoredSource> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   await ensureProjectSources(projectId);
   const row = getDatabase().prepare(`${sourceSelect} WHERE project_id = ? AND id = ?`).get(projectId, checkedId(sourceId));
   if (!row) throw new HttpError(404, "Source not found in this project.");
@@ -55,7 +60,7 @@ async function sourceDirectory(projectId: string, folderId: string, create = fal
   const base = dataDirectory();
   if (create) await mkdir(/* turbopackIgnore: true */ base, { recursive: true });
   let current = await realpath(/* turbopackIgnore: true */ base);
-  for (const segment of ["uploads", projectId, "sources", folderId]) {
+  for (const segment of [...projectUploadSegments(projectId), "sources", folderId]) {
     current = join(/* turbopackIgnore: true */ current, segment);
     if (create) await mkdir(/* turbopackIgnore: true */ current, { recursive: false }).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
     const info = await lstat(/* turbopackIgnore: true */ current);
@@ -79,6 +84,7 @@ export async function safeSourceFile(source: StoredSource): Promise<string> {
   } catch { throw new HttpError(422, "The source file is missing, too large, or outside its project. Replace it from Sources."); }
 }
 export async function engineSources(projectId: string): Promise<EngineSource[]> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const sources = await listSources(projectId);
   return sources.map((source) => ({ id: source.id, columns: source.columns.map(({ name }) => name), async *open(request = {}) {
     const filePath = await safeSourceFile(source);
@@ -86,6 +92,7 @@ export async function engineSources(projectId: string): Promise<EngineSource[]> 
   } }));
 }
 export async function previewSource(projectId: string, sourceId: string, limit = 20, signal?: AbortSignal): Promise<{ columns: SourceColumn[]; rows: PrepareRow[]; warnings: string[] }> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) throw new HttpError(400, "Source previews support between one and 1,000 rows.");
   const source = await getSource(projectId, sourceId); const rows: PrepareRow[] = [], warnings = new Set<string>();
   for await (const row of readSourceRows({ ...source, filePath: await safeSourceFile(source) }, { limit, signal, expectedColumns: source.columns.map(({ name }) => name), onWarning: (warning) => { if (warnings.size < 20) warnings.add(warning); } })) rows.push(normalizeSourceRow(row, source.columns));
@@ -136,6 +143,7 @@ async function sourceChanged(projectId: string): Promise<void> {
   catch (error) { if (!(error instanceof HttpError && error.status === 409 && findActiveRun(projectId))) throw error; }
 }
 export async function inspectSourceUpload(projectId: string, request: Request): Promise<{ kind: SourceKind; sheets: string[] }> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   await ensureProjectSources(projectId);
   const form = await readSourceForm(request), file = form.get("file");
   if (!(file instanceof File)) throw new HttpError(400, "Choose a source file to inspect.");
@@ -144,6 +152,7 @@ export async function inspectSourceUpload(projectId: string, request: Request): 
   finally { await rm(/* turbopackIgnore: true */ saved.directory, { recursive: true, force: true }); }
 }
 export async function uploadSources(projectId: string, request: Request): Promise<{ sources: PublicSource[]; warnings: string[] }> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   await ensureProjectSources(projectId); mutableProject(projectId);
   const form = await readSourceForm(request), file = form.get("file");
   if (!(file instanceof File)) throw new HttpError(400, "Choose a CSV, XLSX, or JSON source file.");
@@ -201,6 +210,7 @@ async function affectedSteps(projectId: string, source: StoredSource, columns: S
   });
 }
 export async function updateSource(projectId: string, sourceId: string, request: Request): Promise<{ source: PublicSource; affectedSteps: AffectedSourceStep[]; warnings: string[] }> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const prior = await getSource(projectId, sourceId); mutableProject(projectId);
   let uploaded: Awaited<ReturnType<typeof writeUploadedSource>> | undefined;
   let name = prior.name, options = prior.options;
@@ -234,6 +244,7 @@ export async function updateSource(projectId: string, sourceId: string, request:
   } catch (error) { if (uploaded) await rm(/* turbopackIgnore: true */ uploaded.directory, { recursive: true, force: true }); if (error instanceof HttpError || request.signal.aborted) throw error; throw new HttpError(422, error instanceof Error ? error.message : "The source could not be updated."); }
 }
 export async function deleteSource(projectId: string, sourceId: string): Promise<void> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const source = await getSource(projectId, sourceId); mutableProject(projectId);
   const pipeline = (await import("./prepare-storage")).readPipeline(projectId)!;
   if (pipeline.definition.mainSourceId === sourceId || pipeline.definition.steps.some((step) => "sourceId" in step && step.sourceId === sourceId)) throw new HttpError(409, "This source is used by the pipeline. Change its main input or remove the referring Join/Union step before removing it.");

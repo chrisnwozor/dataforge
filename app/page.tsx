@@ -1,3 +1,4 @@
+import { withWorkspacePage } from "@/lib/auth/guards";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -10,7 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
-export default function Home() {
+function Home() {
   return (
     <main>
       <section className="hero">
@@ -154,3 +155,5 @@ export default function Home() {
     </main>
   );
 }
+
+export default withWorkspacePage("viewer", Home);

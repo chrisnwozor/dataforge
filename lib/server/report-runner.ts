@@ -1,3 +1,4 @@
+import { createJobAccess } from "@/lib/auth/context";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { POST as queryPOST } from "@/app/api/projects/[id]/query/route";
@@ -121,10 +122,12 @@ export async function executeReportData(report: SavedReport, params: unknown, mo
   return data;
 }
 
-async function performReportRun(report: SavedReport, run: ReportRun, formats: ReportExportFormat[], controller: AbortController, scheduled: boolean, dependencies: ReportRunnerDependencies): Promise<void> {
+async function performReportRun(report: SavedReport, run: ReportRun, formats: ReportExportFormat[], controller: AbortController, scheduled: boolean, dependencies: ReportRunnerDependencies, access: ReturnType<typeof createJobAccess>): Promise<void> {
+  const stopWatching = access.watch(controller);
   const { signal } = controller;
   const timeout = setTimeout(() => controller.abort(new Error("Report exceeded its ten-minute overall timeout.")), 10 * 60_000);
   try {
+    access.assert();
     checkCancelled(signal);
     updateReportRun(report.projectId, report.id, run.id, { status: "running" });
     const hasData = report.definition.items.some((item) => "data" in item);
@@ -132,7 +135,7 @@ async function performReportRun(report: SavedReport, run: ReportRun, formats: Re
     const model = hasData ? await dependencies.loadModel(report.projectId) : undefined;
     const params = validateReportParameters(report.definition, run.params, model);
     const views = listExploreViews(report.projectId).map(({ id, config }) => ({ id, config }));
-    const cacheKey = reportResultCacheKey(model?.version ?? "text-v1", ready?.run.id ?? "no-data", report.definition, params, views);
+    const cacheKey = `${report.projectId}:` + reportResultCacheKey(model?.version ?? "text-v1", ready?.run.id ?? "no-data", report.definition, params, views);
     const cached = cachedData(cacheKey);
     const data = cached ? { ...cached, runAt: new Date().toISOString() } : model ? await executeReportData(report, params, model, signal, dependencies.post, scheduled) : { items: {}, parameters: params, runAt: new Date().toISOString() };
     if (!cached) cacheData(cacheKey, data);
@@ -160,8 +163,8 @@ async function performReportRun(report: SavedReport, run: ReportRun, formats: Re
   } catch (error) {
     const message = signal.aborted ? signal.reason instanceof Error && signal.reason.message.includes("ten-minute") ? signal.reason.message : "Report cancelled." : error instanceof Error ? error.message : "The report could not be completed.";
     try { removeReportExports(report.id, run.id); } catch { /* Retention can remove any incomplete files later. */ }
-    try { updateReportRun(report.projectId, report.id, run.id, { status: signal.aborted ? "cancelled" : "failed", error: message.slice(0, 4000) }); } catch { /* A terminal run keeps its recorded state. */ }
-  } finally { clearTimeout(timeout); active.delete(run.id); }
+    try { access.finish(() => updateReportRun(report.projectId, report.id, run.id, { status: signal.aborted ? "cancelled" : "failed", error: message.slice(0, 4000) })); } catch { /* A terminal run keeps its recorded state. */ }
+  } finally { stopWatching(); clearTimeout(timeout); active.delete(run.id); }
 }
 
 /** Validation/storage complete before returning; execution begins in the background. */
@@ -176,7 +179,8 @@ export async function startReportRun(projectId: string, reportId: string, input:
   catch (error) { throw new HttpError(400, error instanceof z.ZodError ? error.issues[0]?.message ?? "Invalid report parameters." : "Invalid report parameters."); }
   const run = createReportRun(projectId, reportId, { params, trigger: scheduled ? "scheduled" : "manual" });
   const controller = new AbortController();
-  const done = new Promise<void>((resolve) => setImmediate(resolve)).then(() => performReportRun(report, run, parsed.data.formats, controller, scheduled, dependencies));
+  const access = createJobAccess(projectId, "viewer");
+  const done = new Promise<void>((resolve) => setImmediate(resolve)).then(() => access.run(() => performReportRun(report, run, parsed.data.formats, controller, scheduled, dependencies, access)));
   active.set(run.id, { projectId, reportId, controller, done });
   return run;
 }

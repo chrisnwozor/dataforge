@@ -1,3 +1,5 @@
+import { projectUploadSegments } from "./projects";
+import { createJobAccess, localMode, requireProjectAccess } from "@/lib/auth/context";
 import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, lstat, realpath, rename, rm } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
@@ -76,7 +78,7 @@ async function safePreparedFile(projectId: string, filePath: string): Promise<st
 async function preparationDirectory(projectId: string, runId: string, create: boolean): Promise<string> {
   if (!projectIdSchema.safeParse(projectId).success || !projectIdSchema.safeParse(runId).success) throw new HttpError(400, "Invalid preparation identity.");
   let directory = await realpath(/* turbopackIgnore: true */ dataDirectory());
-  for (const segment of ["uploads", projectId, "prepared", "runs", runId]) {
+  for (const segment of [...projectUploadSegments(projectId), "prepared", "runs", runId]) {
     directory = join(/* turbopackIgnore: true */ directory, segment);
     if (create) await mkdir(/* turbopackIgnore: true */ directory).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
     const info = await lstat(/* turbopackIgnore: true */ directory);
@@ -86,6 +88,7 @@ async function preparationDirectory(projectId: string, runId: string, create: bo
 }
 
 async function performPreparation(saved: SavedPipeline, controller: AbortController, options: PreparedDatasetOptions): Promise<PreparedDataset> {
+  const access = createJobAccess(saved.projectId, "editor");
   const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
   const publishState = (patch: Parameters<typeof setPipelineState>[2]) => {
     if (jobs.get(jobKey(saved.projectId))?.controller === controller) setPipelineState(saved.projectId, saved.version, patch);
@@ -94,9 +97,11 @@ async function performPreparation(saved: SavedPipeline, controller: AbortControl
   assertNoActiveLoad(saved.projectId, options.runId);
   if (options.expectedVersion !== undefined && options.expectedVersion !== saved.version) throw new HttpError(409, "The pipeline changed after the scripts were generated. Prepare the current version and generate again.");
   const record = createPreparationRun(saved.projectId, saved.version, options.runId);
+  const stopWatching = access.watch(controller);
   let directory: string;
   try { directory = await preparationDirectory(saved.projectId, record.id, true); }
   catch (error) {
+    stopWatching();
     const message = messageFor(error);
     finishPreparationRun(saved.projectId, record.id, "failed", emptySummary(), message, "");
     publishState({ status: "failed", error: message, qualityRunId: record.id });
@@ -156,13 +161,15 @@ async function performPreparation(saved: SavedPipeline, controller: AbortControl
     await rm(/* turbopackIgnore: true */ temporary, { force: true }).catch(() => {});
     const status = signal.aborted ? "cancelled" : "failed";
     const message = signal.aborted ? "Preparation cancelled." : messageFor(error);
+    access.finish(() => {
     savePreparationRejects(saved.projectId, record.id, rejects);
     finishPreparationRun(saved.projectId, record.id, status, summary, message, rejectsPath);
     publishState({ status: options.runId && saved.profiledVersion === saved.version ? "succeeded" : status, progress: summary, error: options.runId ? saved.error : message, qualityRunId: record.id });
     if (options.runId) getDatabase().prepare("UPDATE runs SET prepare_summary = ? WHERE id = ? AND project_id = ?").run(JSON.stringify(summary), options.runId, saved.projectId);
+    });
     if (error instanceof HttpError) throw error;
     throw new HttpError(signal.aborted ? 499 : 422, message);
-  } finally { await execution?.close(); }
+  } finally { stopWatching(); await execution?.close(); }
 }
 
 function startPreparation(saved: SavedPipeline, options: PreparedDatasetOptions): PreparationJob {
@@ -175,6 +182,7 @@ function startPreparation(saved: SavedPipeline, options: PreparedDatasetOptions)
 }
 
 export async function queuePreparedProfile(projectId: string, options: { bumpVersion?: boolean } = {}): Promise<SavedPipeline> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   let saved = await ensureDefaultPipeline(projectId);
   assertNoActiveLoad(projectId);
   if (options.bumpVersion) saved = bumpPipelineVersion(projectId);
@@ -185,6 +193,7 @@ export async function queuePreparedProfile(projectId: string, options: { bumpVer
   return readPipeline(projectId)!;
 }
 export async function ensurePreparedDataset(projectId: string, options: PreparedDatasetOptions = {}): Promise<PreparedDataset> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   options.signal?.throwIfAborted();
   const saved = await ensureDefaultPipeline(projectId);
   if (options.expectedVersion !== undefined && options.expectedVersion !== saved.version) throw new HttpError(409, "The pipeline changed after generation. Generate the current pipeline before loading.");
@@ -198,8 +207,10 @@ export async function ensurePreparedDataset(projectId: string, options: Prepared
   pending?.controller.abort();
   return startPreparation(saved, options).done;
 }
-export function executePreparedDataset(projectId: string, options: PreparedDatasetOptions = {}): Promise<PreparedDataset> { return ensurePreparedDataset(projectId, { ...options, force: true }); }
+export function executePreparedDataset(projectId: string, options: PreparedDatasetOptions = {}): Promise<PreparedDataset> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer"); return ensurePreparedDataset(projectId, { ...options, force: true }); }
 export async function requirePreparedProfile(projectId: string, options: { signal?: AbortSignal } = {}): Promise<SavedPipeline | null> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   let saved = readPipeline(projectId);
   if (saved && (saved.status === "running" || saved.status === "queued")) saved = await preparationStatus(projectId);
   // Legacy profiles remain usable without copying/re-reading their original file.
@@ -210,6 +221,7 @@ export async function requirePreparedProfile(projectId: string, options: { signa
   return readPipeline(projectId);
 }
 export async function cancelPreparedProfile(projectId: string): Promise<SavedPipeline> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const saved = await preparationStatus(projectId);
   if (saved.status !== "queued" && saved.status !== "running") return saved;
   const job = jobs.get(jobKey(projectId));
@@ -218,9 +230,11 @@ export async function cancelPreparedProfile(projectId: string): Promise<SavedPip
   setPipelineState(projectId, saved.version, { status: "cancelled", error: "Preparation cancelled." });
   return readPipeline(projectId)!;
 }
-export async function waitForPreparation(projectId: string): Promise<PreparedDataset | undefined> { return jobs.get(jobKey(projectId))?.done; }
+export async function waitForPreparation(projectId: string): Promise<PreparedDataset | undefined> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer"); return jobs.get(jobKey(projectId))?.done; }
 /** Recover old worker records lazily, without starting a second Node scheduler. */
 export async function preparationStatus(projectId: string): Promise<SavedPipeline> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const saved = await ensureDefaultPipeline(projectId);
   if (saved.status !== "queued" && saved.status !== "running" || jobs.has(jobKey(projectId))) return saved;
   const row = saved.qualityRunId ? getDatabase().prepare("SELECT owner_pid, started_at, status FROM pipeline_quality_runs WHERE project_id = ? AND id = ?").get(projectId, saved.qualityRunId) : undefined;
@@ -245,6 +259,7 @@ export async function preparationStatus(projectId: string): Promise<SavedPipelin
 }
 
 export async function previewPipeline(projectId: string, input: unknown, signal?: AbortSignal): Promise<PreparedPreview & { lineage: ReturnType<typeof analyzePipeline>["lineage"]; warnings: string[] }> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const saved = await ensureDefaultPipeline(projectId);
   const parsed = z.object({ definition: pipelineDefinitionSchema.optional(), stepIndex: z.number().int().min(-1).max(99).default(saved.definition.steps.length - 1), limit: z.number().int().min(1).max(1_000).default(1_000) }).strict().safeParse(input);
   if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Choose a preview step and up to 1,000 source rows.");
@@ -289,6 +304,7 @@ export async function previewPipeline(projectId: string, input: unknown, signal?
 }
 
 export function readQuality(projectId: string, requestedRunId?: string): { summary: PipelineSummary | null; rejects: PrepareReject[]; downloadUrl: string | null; run: PreparationRun | null; runs: PreparationRun[] } {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const runs = listPreparationRuns(projectId);
   let run = requestedRunId ? runs.find((candidate) => candidate.id === requestedRunId || candidate.warehouseRunId === requestedRunId) : runs[0];
   if (requestedRunId && !run) {
@@ -303,6 +319,7 @@ export function readQuality(projectId: string, requestedRunId?: string): { summa
   return { summary: run?.summary ?? null, rejects: run ? readPreparationRejects(projectId, run.id) : [], downloadUrl: run ? `/api/projects/${encodeURIComponent(projectId)}/pipeline/runs/${encodeURIComponent(run.id)}/rejects` : null, run: run ?? null, runs };
 }
 export async function preparationRejectsResponse(projectId: string, runId: string): Promise<Response> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const run = getPreparationRun(projectId, runId);
   const path = join(await preparationDirectory(projectId, run.id, false), "rejects.csv");
   const actual = await safePreparedFile(projectId, path).catch(() => { throw new HttpError(404, "The rejected-row export is unavailable."); });

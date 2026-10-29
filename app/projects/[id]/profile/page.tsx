@@ -1,3 +1,4 @@
+import { withProjectPage } from "@/lib/auth/guards";
 import Link from "next/link";
 import { ArrowRight, TriangleAlert } from "lucide-react";
 import { getColumnProfiles, getProfileReport } from "@/lib/data";
@@ -8,7 +9,7 @@ import { HttpError } from "@/lib/server/http";
 import { hasStoredPipeline } from "@/lib/server/prepare-storage";
 import { PreparationUnavailable } from "@/components/preparation-unavailable";
 export const metadata = { title: "Data profile" };
-export default async function ProfilePage({
+async function ProfilePage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -57,3 +58,5 @@ export default async function ProfilePage({
     </main>
   );
 }
+
+export default withProjectPage("editor", ProfilePage);

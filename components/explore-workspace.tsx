@@ -1,4 +1,5 @@
 "use client";
+import {canEdit,canAdmin,useWorkspaceRole} from "@/components/auth/provider";
 
 import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -33,6 +34,7 @@ async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "The request could not be completed. Try again.";
 
 export function ExploreWorkspace({ projectId, initialModel = null, initialError = "" }: { projectId: string; initialModel?: SemanticModel | null; initialError?: string }) {
+  const role=useWorkspaceRole();
   const [model, setModel] = useState(initialModel);
   const [loading, setLoading] = useState(!initialModel);
   const [error, setError] = useState(initialError);
@@ -44,7 +46,7 @@ export function ExploreWorkspace({ projectId, initialModel = null, initialError 
     return () => controller.abort();
   }, [projectId, initialModel, attempt]);
   if (model) return <ExploreCanvas key={`${projectId}:${model.version}`} projectId={projectId} model={model} />;
-  return <div className={styles.blocked} role={loading ? "status" : undefined}>{loading ? <><Loader2 size={22} className={styles.spin} aria-hidden="true" /><h2>Preparing your fields…</h2></> : <><BarChart3 size={26} aria-hidden="true" /><h2>Your warehouse is the starting point</h2><p>{error || "Configure a SQL Server connection and complete a successful load to explore your data."}</p><div className={styles.toolbarActions}><Link href="/settings" className="button button-outline">Connection settings</Link><Link href={`/projects/${projectId}/generate`} className="button button-outline">Go to Generate</Link><Button variant="ghost" onClick={() => { setLoading(true); setAttempt((value) => value + 1); }}>Try again</Button></div></>}</div>;
+  return <div className={styles.blocked} role={loading ? "status" : undefined}>{loading ? <><Loader2 size={22} className={styles.spin} aria-hidden="true" /><h2>Preparing your fields…</h2></> : <><BarChart3 size={26} aria-hidden="true" /><h2>Your warehouse is the starting point</h2><p>{error || "Configure a SQL Server connection and complete a successful load to explore your data."}</p><div className={styles.toolbarActions}>{canAdmin(role)&&<Link href="/settings" className="button button-outline">Connection settings</Link>}{canEdit(role)&&<Link href={`/projects/${projectId}/generate`} className="button button-outline">Go to Generate</Link>}<Button variant="ghost" onClick={() => { setLoading(true); setAttempt((value) => value + 1); }}>Try again</Button></div></>}</div>;
 }
 
 function Shelf({ shelf, label, children, empty }: { shelf: ExploreShelf | "filters"; label: string; children?: ReactNode; empty: boolean }) {
@@ -66,6 +68,7 @@ function TimingPanel({ timings }: { timings?: QueryTimings }) {
 }
 
 function ExploreCanvas({ projectId, model }: { projectId: string; model: SemanticModel }) {
+  const editable=canEdit(useWorkspaceRole());
   const [config, dispatch] = useReducer(viewReducer, model, createStarterView);
   const [initialized, setInitialized] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
@@ -208,7 +211,7 @@ function ExploreCanvas({ projectId, model }: { projectId: string; model: Semanti
   };
   const downloadChart = async (format: "svg" | "png") => {
     if (!chartRoot.current) return;
-    try { await exportChart(chartRoot.current, format, "dataforge-explore"); setNotice(`Chart exported as ${format.toUpperCase()}.`); } catch (error) { setActionError(errorMessage(error)); }
+    try { await exportChart(chartRoot.current, format, "dataforge-explore", projectId); setNotice(`Chart exported as ${format.toUpperCase()}.`); } catch (error) { setActionError(errorMessage(error)); }
   };
   const sortRef = config.sort[0]?.ref;
   const sortValue = !sortRef ? "none" : typeof sortRef === "string" ? `m:${sortRef}` : `a:${attributeKey(sortRef)}`;
@@ -222,8 +225,8 @@ function ExploreCanvas({ projectId, model }: { projectId: string; model: Semanti
         <div className={styles.viewName}><BarChart3 size={16} aria-hidden="true" /><strong>{selectedView?.name ?? "Untitled view"}</strong>{dirty && <span className={styles.small}>Edited</span>}</div>
         <div className={styles.toolbarActions}>
           <SelectMenu label="Open view" value={selectedView?.id ?? ""} options={[{ value: "", label: "Open view…" }, ...savedViews.map((view) => ({ value: view.id, label: view.name }))]} onValueChange={(value) => { void openView(value); }} />
-          <Button size="sm" variant="outline" onClick={() => { if (selectedView) void saveView(); else { setDialogError(""); setNameDialog("saveAs"); } }} disabled={busy}><Save size={13} aria-hidden="true" />Save</Button>
-          <SelectMenu label="View actions" value="actions" options={[{ value: "actions", label: "More…" }, { value: "saveAs", label: "Save as…" }, ...(selectedView ? [{ value: "rename", label: "Rename…" }, { value: "delete", label: "Delete view" }] : [])]} onValueChange={(value) => { if (value === "delete") void deleteView(); else if (value === "saveAs" || value === "rename") { setDialogError(""); setNameDialog(value); } }} />
+          <Button size="sm" variant="outline" onClick={() => { if (selectedView) void saveView(); else { setDialogError(""); setNameDialog("saveAs"); } }} disabled={busy || !editable}><Save size={13} aria-hidden="true" />Save</Button>
+          {editable && <SelectMenu label="View actions" value="actions" options={[{ value: "actions", label: "More…" }, { value: "saveAs", label: "Save as…" }, ...(selectedView ? [{ value: "rename", label: "Rename…" }, { value: "delete", label: "Delete view" }] : [])]} onValueChange={(value) => { if (value === "delete") void deleteView(); else if (value === "saveAs" || value === "rename") { setDialogError(""); setNameDialog(value); } }} />}
           <Button size="sm" variant="ghost" onClick={() => { void share(); }}><Share2 size={13} aria-hidden="true" />Share</Button>
           <SelectMenu label="Export" value="export" options={[{ value: "export", label: "Export…" }, { value: "csv", label: "Result as CSV" }, ...(config.viz !== "table" && config.viz !== "pivot" ? [{ value: "svg", label: "Chart as SVG" }, { value: "png", label: "Chart as PNG" }] : [])]} onValueChange={(value) => { if (value === "csv") void downloadCsv(); else if (value === "svg" || value === "png") void downloadChart(value); }} />
           <Button size="icon" variant="ghost" aria-label={rightOpen ? "Collapse formatting panel" : "Open formatting panel"} onClick={() => setRightOpen((open) => !open)}>{rightOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}</Button>

@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { z } from "zod";
 import { modelSchema } from "@/lib/modeling/schema";
 import { getOrCreateModel, saveEditedModel } from "@/lib/server/models";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 const saveModelSchema = z.object({ model: modelSchema }).strict();
 
-export async function GET(
+async function handleGET(
   _request: Request,
   context: ProjectModelContext,
 ): Promise<Response> {
@@ -28,7 +29,7 @@ export async function GET(
   }
 }
 
-export async function PUT(
+async function handlePUT(
   request: Request,
   context: ProjectModelContext,
 ): Promise<Response> {
@@ -63,3 +64,6 @@ export async function PUT(
     return errorResponse(error, "The model could not be saved. Try again.");
   }
 }
+
+export const GET = withProjectRoute("editor", handleGET);
+export const PUT = withProjectRoute("editor", handlePUT);

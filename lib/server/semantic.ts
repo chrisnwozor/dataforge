@@ -1,3 +1,4 @@
+import { localMode, requireProjectAccess } from "@/lib/auth/context";
 import { createHash } from "node:crypto";
 import { deriveSemanticModel } from "@/lib/semantic/derive";
 import {
@@ -27,6 +28,7 @@ import { listRuns } from "./runs";
 
 /** Server-only gate shared by semantic and query APIs. Never return settings to a client. */
 export function requireSemanticReady(projectId: string) {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   if (!findProject(projectId)) throw new HttpError(404, "Project not found.");
   const connection = readPublicConnection();
   if (!connection.configured)
@@ -84,6 +86,7 @@ const hash = (value: unknown) =>
 
 /** Cheap in-flight invalidation check; do not derive and validate the whole model a second time. */
 export function readSemanticStamp(projectId: string): string {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const row = getDatabase()
     .prepare(
       `
@@ -204,6 +207,7 @@ function assemble(
 export async function getSemanticModel(
   projectId: string,
 ): Promise<SemanticModel> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   requireSemanticReady(projectId);
   const derived = await derive(projectId);
   const db = getDatabase();
@@ -281,6 +285,7 @@ export async function saveSemanticModel(
   projectId: string,
   value: unknown,
 ): Promise<SemanticModel> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const current = await getSemanticModel(projectId);
   const parsed = semanticEditsSchema.safeParse(value);
   if (!parsed.success)
@@ -373,6 +378,7 @@ export async function saveSemanticModel(
 export async function regenerateSemanticDefaults(
   projectId: string,
 ): Promise<SemanticModel> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   await getSemanticModel(projectId);
   const derived = await derive(projectId);
   // Custom expressions remain intact even if a source-model edit now requires their repair.

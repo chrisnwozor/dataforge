@@ -1,3 +1,4 @@
+import { localMode, requireProjectAccess } from "@/lib/auth/context";
 import { strToU8, zipSync } from "fflate";
 import { z } from "zod";
 import { generateSql } from "@/lib/sql";
@@ -277,6 +278,7 @@ export async function getGeneration(
   options: GenerationRequestOptions | URLSearchParams = {},
   execution?: { runId: string; filePath: string },
 ): Promise<GenerationResponse> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const requested =
     options instanceof URLSearchParams
       ? parseGenerationQuery(options)

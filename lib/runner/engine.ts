@@ -1,3 +1,5 @@
+import { createJobAccess, localMode, requireProjectAccess } from "@/lib/auth/context";
+import { auditEvent } from "@/lib/auth/audit";
 import { randomUUID } from "node:crypto";
 import { invalidateSemanticCache } from "@/lib/semantic/query/cache";
 import { createWriteStream } from "node:fs";
@@ -50,6 +52,7 @@ export interface RunnerDependencies {
   stageSource: typeof stageCleanedSource;
 }
 interface Job {
+  access: ReturnType<typeof createJobAccess>;
   run: RunRecord;
   files: GeneratedFile[];
   batches: SqlBatch[][];
@@ -124,6 +127,7 @@ function log(job: Job, level: RunLogLevel, message: string) {
   appendLog(job.run.id, level, safe(job, message).slice(0, 32_000));
 }
 function checkCancelled(job: Job) {
+  try{job.access.assert();}catch(error){job.cancelled=true;job.abort.abort();throw error;}
   if (job.cancelled) throw new Error("Run cancelled by the user.");
 }
 
@@ -240,6 +244,7 @@ async function executeJob(
   job: Job,
   dependencies: RunnerDependencies,
 ): Promise<void> {
+  const stopWatching = job.access.watch(job.abort, () => { job.cancelled = true; void job.transport?.cancel(); });
   let ordinal = -1;
   let batch: SqlBatch | undefined;
   let failure: unknown;
@@ -375,6 +380,7 @@ async function executeJob(
       if (!failure) failure = closeFailure;
       log(job, "WARN", `Connection cleanup: ${sqlError(closeFailure).message}`);
     }
+    await job.access.finish(async () => {
     if (job.cancelled) {
       for (const step of getRunDetail(job.run.id)?.steps ?? [])
         if (step.status === "queued" || step.status === "running")
@@ -434,6 +440,9 @@ async function executeJob(
       transitionRun(job.run.id, "succeeded");
       invalidateSemanticCache(job.run.projectId);
     }
+    auditEvent("load.finished", "run", job.run.id, {status: getRun(job.run.id)?.status ?? "failed"});
+    });
+    stopWatching();
     jobs.delete(job.run.id);
     job.connection.password = "";
   }
@@ -445,6 +454,7 @@ export async function startRun(
   options: RunStartOptions = {},
   overrides: Partial<RunnerDependencies> = {},
 ): Promise<RunRecord> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   if (!projectIdSchema.safeParse(projectId).success)
     throw new HttpError(400, "Invalid project ID.");
   recoverInterruptedRuns();
@@ -533,7 +543,9 @@ export async function startRun(
     expectedFiles,
     runId,
   );
+  auditEvent("load.started","run",run.id);
   const job: Job = {
+    access: createJobAccess(projectId, "editor"),
     run,
     files: generation.files,
     batches,
@@ -564,7 +576,7 @@ export async function startRun(
   };
   job.done = new Promise<void>((resolve) => {
     setTimeout(() => {
-      void executeJob(job, dependencies).then(
+      void job.access.run(() => executeJob(job, dependencies)).then(
         resolve,
         (unexpected: unknown) => {
           try {

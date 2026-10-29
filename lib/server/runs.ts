@@ -1,3 +1,4 @@
+import { currentWorkspaceId, localMode, requireProjectAccess } from "@/lib/auth/context";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { SQLOutputValue } from "node:sqlite";
@@ -71,10 +72,12 @@ export function getRun(runId: string): RunRecord | undefined {
   const row = getDatabase()
     .prepare("SELECT * FROM runs WHERE id = ?")
     .get(runId);
+  if (row && !localMode()) requireProjectAccess(String(row.project_id));
   return row ? runFromRow(row) : undefined;
 }
 
 export function listRuns(projectId: string): RunRecord[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   return getDatabase()
     .prepare(
       "SELECT * FROM runs WHERE project_id = ? ORDER BY started_at DESC, id DESC",
@@ -84,25 +87,28 @@ export function listRuns(projectId: string): RunRecord[] {
 }
 
 export function findActiveRun(projectId: string): RunRecord | undefined {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const row = getDatabase()
     .prepare(
       "SELECT * FROM runs WHERE project_id = ? AND status IN ('queued', 'running') ORDER BY started_at DESC LIMIT 1",
     )
     .get(projectId);
+  if (row && !localMode()) requireProjectAccess(String(row.project_id));
   return row ? runFromRow(row) : undefined;
 }
 
 export function listActiveRuns(): RunRecord[] {
   return getDatabase()
     .prepare(
-      "SELECT * FROM runs WHERE status IN ('queued', 'running') ORDER BY started_at ASC",
+      "SELECT * FROM runs WHERE workspace_id = ? AND status IN ('queued', 'running') ORDER BY started_at ASC",
     )
-    .all()
+    .all(currentWorkspaceId())
     .map(runFromRow);
 }
 
 /** Private recovery metadata is never included in a client run record. */
 export function getRunOwnerPid(runId: string): number | null {
+  if (!localMode()) {const owner=getDatabase().prepare("SELECT project_id FROM runs WHERE id=?").get(runId); if (!owner) throw new HttpError(404,"Run not found."); requireProjectAccess(String(owner.project_id),"viewer");}
   const row = getDatabase()
     .prepare("SELECT owner_pid FROM runs WHERE id = ?")
     .get(runId);
@@ -116,6 +122,7 @@ export function createQueuedRun(
   files: readonly string[],
   id = randomUUID(),
 ): RunRecord {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   if (!findProject(projectId)) throw new HttpError(404, "Project not found.");
   const parsed = storedOptionsSchema.safeParse(options);
   if (!parsed.success) throw new HttpError(400, "Invalid run options.");
@@ -174,6 +181,7 @@ export type RunUpdate = Partial<
 >;
 
 export function updateRun(runId: string, patch: RunUpdate): RunRecord {
+  if (!localMode()) {const owner=getDatabase().prepare("SELECT project_id FROM runs WHERE id=?").get(runId); if (!owner) throw new HttpError(404,"Run not found."); requireProjectAccess(String(owner.project_id),"editor");}
   const database = getDatabase();
   return withTransaction(database, () => {
     const existing = getRun(runId);
@@ -229,6 +237,7 @@ export function transitionRun(
   status: RunStatus,
   patch: Omit<RunUpdate, "status"> = {},
 ): RunRecord {
+  if (!localMode()) {const owner=getDatabase().prepare("SELECT project_id FROM runs WHERE id=?").get(runId); if (!owner) throw new HttpError(404,"Run not found."); requireProjectAccess(String(owner.project_id),"editor");}
   return updateRun(runId, { ...patch, status });
 }
 
@@ -260,6 +269,7 @@ export function updateStep(
   ordinal: number,
   patch: RunStepUpdate,
 ): RunStep {
+  if (!localMode()) {const owner=getDatabase().prepare("SELECT project_id FROM runs WHERE id=?").get(runId); if (!owner) throw new HttpError(404,"Run not found."); requireProjectAccess(String(owner.project_id),"editor");}
   const database = getDatabase();
   const row = database
     .prepare("SELECT * FROM run_steps WHERE run_id = ? AND ordinal = ?")
@@ -308,6 +318,7 @@ export function appendLog(
   message: string,
   ts = new Date().toISOString(),
 ): RunLog {
+  if (!localMode()) {const owner=getDatabase().prepare("SELECT project_id FROM runs WHERE id=?").get(runId); if (!owner) throw new HttpError(404,"Run not found."); requireProjectAccess(String(owner.project_id),"editor");}
   const result = getDatabase()
     .prepare(
       "INSERT INTO run_logs (run_id, ts, level, message) VALUES (?, ?, ?, ?)",
@@ -320,6 +331,7 @@ export function saveRejectedRows(
   runId: string,
   rows: readonly RejectedRow[],
 ): void {
+  if (!localMode()) {const owner=getDatabase().prepare("SELECT project_id FROM runs WHERE id=?").get(runId); if (!owner) throw new HttpError(404,"Run not found."); requireProjectAccess(String(owner.project_id),"editor");}
   const database = getDatabase();
   withTransaction(database, () => {
     database.prepare("DELETE FROM run_reject_rows WHERE run_id = ?").run(runId);

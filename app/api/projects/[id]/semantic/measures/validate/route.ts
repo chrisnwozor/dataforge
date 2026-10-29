@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { z } from "zod";
 import { compile } from "@/lib/semantic/expr";
 import { errorResponse, HttpError } from "@/lib/server/http";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 const expressionSchema = z
   .object({ expression: z.string().min(1).max(2_000) })
   .strict();
-export async function POST(
+async function handlePOST(
   request: Request,
   context: SemanticProjectContext,
 ): Promise<Response> {
@@ -61,3 +62,5 @@ export async function POST(
     );
   }
 }
+
+export const POST = withProjectRoute("editor", handlePOST);

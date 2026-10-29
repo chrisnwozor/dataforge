@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { HttpError } from "@/lib/server/http";
 import {
   addQueryPhase,
@@ -13,7 +14,7 @@ import { getDistinctValues } from "@/lib/server/semantic-query";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
+async function handleGET(
   request: Request,
   context: ProjectModelContext,
 ): Promise<Response> {
@@ -74,3 +75,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withProjectRoute("viewer", handleGET);

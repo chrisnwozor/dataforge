@@ -1,10 +1,11 @@
+import { withWorkspaceRoute } from "@/lib/auth/guards";
 import { readConnectionRequest, testConnection } from "@/lib/server/connection";
 import { errorResponse } from "@/lib/server/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request): Promise<Response> {
+async function handlePOST(request: Request): Promise<Response> {
   try {
     return Response.json(
       await testConnection(await readConnectionRequest(request)),
@@ -17,3 +18,5 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 }
+
+export const POST = withWorkspaceRoute("admin", handlePOST);

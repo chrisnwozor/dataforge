@@ -1,3 +1,5 @@
+import { currentWorkspaceId, requireWorkspaceRole } from "@/lib/auth/context";
+import { withWorkspacePage } from "@/lib/auth/guards";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { getProjects } from "@/lib/data";
@@ -8,8 +10,9 @@ import { buttonVariants } from "@/components/ui/button";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const metadata = { title: "Projects" };
-export default async function ProjectsPage() {
+async function ProjectsPage() {
   const projects = await getProjects();
+  const canEdit = requireWorkspaceRole(currentWorkspaceId()).role !== "viewer";
   return (
     <>
       <WorkspaceTabs count={projects.length} />
@@ -18,11 +21,11 @@ export default async function ProjectsPage() {
           eyebrow="YOUR WORKSPACE"
           title="Projects"
           description="Your data. A little more organized."
-          actions={
+          actions={canEdit ?
             <Link href="/projects/new" className={buttonVariants()}>
               <Plus size={15} />
               New project
-            </Link>
+            </Link> : undefined
           }
         />
         <ProjectsList projects={projects} />
@@ -30,3 +33,5 @@ export default async function ProjectsPage() {
     </>
   );
 }
+
+export default withWorkspacePage("viewer", ProjectsPage);

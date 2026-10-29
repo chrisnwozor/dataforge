@@ -159,7 +159,7 @@ describe("persisted SQL authentication settings", () => {
       )
       .get()!;
     expect(row.password_encrypted).not.toBe(password);
-    expect(String(row.password_encrypted)).toMatch(/^v1:/);
+    expect(String(row.password_encrypted)).toMatch(/^v2:primary:/);
     closeDatabase();
     expect(getConnectionSettings().password).toBe(password);
     expect(JSON.stringify(await (await GET()).json())).not.toContain(password);

@@ -1,3 +1,4 @@
+import { withWorkspaceRoute } from "@/lib/auth/guards";
 import {
   readPublicConnection,
   readConnectionRequest,
@@ -8,7 +9,7 @@ import { errorResponse } from "@/lib/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<Response> {
+async function handleGET(): Promise<Response> {
   try {
     return Response.json(
       { connection: readPublicConnection() },
@@ -19,7 +20,7 @@ export async function GET(): Promise<Response> {
   }
 }
 
-export async function PUT(request: Request): Promise<Response> {
+async function handlePUT(request: Request): Promise<Response> {
   try {
     return Response.json(
       { connection: saveConnection(await readConnectionRequest(request)) },
@@ -29,3 +30,6 @@ export async function PUT(request: Request): Promise<Response> {
     return errorResponse(error, "Connection settings could not be saved.");
   }
 }
+
+export const GET = withWorkspaceRoute("admin", handleGET);
+export const PUT = withWorkspaceRoute("admin", handlePUT);

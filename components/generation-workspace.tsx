@@ -305,7 +305,7 @@ export function GenerationWorkspace({
       refreshing = true;
       try {
         const [settings, history] = await Promise.all([
-          fetch("/api/settings/connection", {
+          fetch(`/api/projects/${projectId}/execution-target`, {
             cache: "no-store",
             signal: controller.signal,
           }),
@@ -424,7 +424,7 @@ export function GenerationWorkspace({
     setStartingRun(true);
     setRunError("");
     try {
-      const settingsResponse = await fetch("/api/settings/connection", {
+      const settingsResponse = await fetch(`/api/projects/${projectId}/execution-target`, {
         cache: "no-store",
       });
       const latest = (await settingsResponse.json()) as {

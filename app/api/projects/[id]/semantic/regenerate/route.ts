@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { z } from "zod";
 import { errorResponse, HttpError } from "@/lib/server/http";
 import {
@@ -11,7 +12,7 @@ import {
 } from "@/lib/server/semantic-http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function POST(
+async function handlePOST(
   request: Request,
   context: SemanticProjectContext,
 ): Promise<Response> {
@@ -36,3 +37,5 @@ export async function POST(
     );
   }
 }
+
+export const POST = withProjectRoute("editor", handlePOST);

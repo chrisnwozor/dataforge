@@ -1,3 +1,4 @@
+import { migrateAccounts } from "@/lib/auth/migrations";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -264,6 +265,9 @@ export function getDatabase(): DatabaseSync {
       );
     `);
     // Serialize additive migrations across development workers opening the same file.
+    // SQLite requires FK checks off while adding a REFERENCES column with a
+    // non-null default to populated legacy tables. Restore before exposing the handle.
+    database.exec("PRAGMA foreign_keys = OFF");
     database.exec("BEGIN IMMEDIATE");
     try {
       const projectColumns = new Set(
@@ -322,9 +326,12 @@ export function getDatabase(): DatabaseSync {
         database.exec(
           "ALTER TABLE semantic_hierarchies ADD COLUMN is_auto INTEGER NOT NULL DEFAULT 0 CHECK (is_auto IN (0, 1))",
         );
+      migrateAccounts(database);
       database.exec("COMMIT");
+      database.exec("PRAGMA foreign_keys = ON");
     } catch (error) {
       database.exec("ROLLBACK");
+      database.exec("PRAGMA foreign_keys = ON");
       throw error;
     }
     databases.set(filename, database);

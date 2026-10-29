@@ -1,3 +1,4 @@
+import { withWorkspacePage } from "@/lib/auth/guards";
 import { PageHeader } from "@/components/shared";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { SettingsForm } from "@/components/settings-form";
@@ -5,7 +6,7 @@ import { readPublicConnection } from "@/lib/server/connection";
 export const metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export default async function SettingsPage() {
+async function SettingsPage() {
   const connection = readPublicConnection();
   return (
     <>
@@ -28,3 +29,5 @@ export default async function SettingsPage() {
     </>
   );
 }
+
+export default withWorkspacePage("admin", SettingsPage);

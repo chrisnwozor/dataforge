@@ -1,3 +1,5 @@
+import { projectUploadSegments } from "./projects";
+import { localMode, requireProjectAccess } from "@/lib/auth/context";
 import { randomUUID } from "node:crypto";
 import { copyFile, lstat, mkdir, realpath, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -33,7 +35,7 @@ const nowAfter = (value: string) => new Date(Math.max(Date.now(), Date.parse(val
 async function legacyDirectories(projectId: string, sourceId: string): Promise<{ project: string; source: string }> {
   let directory = await realpath(/* turbopackIgnore: true */ dataDirectory());
   let project = "";
-  for (const segment of ["uploads", identity(projectId), "sources", identity(sourceId)]) {
+  for (const segment of [...projectUploadSegments(identity(projectId)), "sources", identity(sourceId)]) {
     directory = join(/* turbopackIgnore: true */ directory, segment);
     if (segment === "sources" || segment === sourceId) await mkdir(/* turbopackIgnore: true */ directory).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
     const info = await lstat(/* turbopackIgnore: true */ directory);
@@ -43,9 +45,11 @@ async function legacyDirectories(projectId: string, sourceId: string): Promise<{
   return { project, source: directory };
 }
 
-export function hasStoredPipeline(projectId: string): boolean { return !!getDatabase().prepare("SELECT 1 FROM project_pipelines WHERE project_id = ?").get(projectId); }
+export function hasStoredPipeline(projectId: string): boolean {
+  if (!localMode()) requireProjectAccess(projectId, "viewer"); return !!getDatabase().prepare("SELECT 1 FROM project_pipelines WHERE project_id = ?").get(projectId); }
 
 export function readPipeline(projectId: string): SavedPipeline | null {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const row = getDatabase().prepare("SELECT project_id AS projectId, version, definition, updated_at AS updatedAt, status, progress, error, profiled_version AS profiledVersion, quality_run_id AS qualityRunId FROM project_pipelines WHERE project_id = ?").get(identity(projectId));
   if (!row) return null;
   try {
@@ -57,6 +61,7 @@ export function readPipeline(projectId: string): SavedPipeline | null {
 
 /** Existing projects retain their saved profile until a real pipeline edit occurs. */
 export async function ensureDefaultPipeline(projectId: string): Promise<SavedPipeline> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const current = readPipeline(projectId); if (current) return current;
   const key = `${dataDirectory()}:${projectId}`;
   const pending = bootstraps.get(key); if (pending) return pending;
@@ -102,6 +107,7 @@ export async function ensureDefaultPipeline(projectId: string): Promise<SavedPip
 }
 
 export async function savePipeline(projectId: string, input: unknown): Promise<SavedPipeline> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const parsed = z.object({ definition: pipelineDefinitionSchema, version: z.number().int().positive() }).strict().safeParse(input);
   if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Provide a valid pipeline definition and saved version.");
   await ensureDefaultPipeline(projectId);
@@ -119,24 +125,29 @@ export async function savePipeline(projectId: string, input: unknown): Promise<S
 }
 
 export function bumpPipelineVersion(projectId: string): SavedPipeline {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   assertNoActiveLoad(projectId);
   const saved = readPipeline(projectId); if (!saved) throw new HttpError(404, "Pipeline not found.");
   getDatabase().prepare("UPDATE project_pipelines SET version = version + 1, updated_at = ?, status = 'queued', error = NULL, progress = NULL WHERE project_id = ?").run(nowAfter(saved.updatedAt), projectId);
   return readPipeline(projectId)!;
 }
 export function assertNoActiveLoad(projectId: string, ownRunId?: string): void {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const active = getDatabase().prepare("SELECT id FROM runs WHERE project_id = ? AND status IN ('queued', 'running') LIMIT 1").get(projectId);
   if (active && String(active.id) !== ownRunId) throw new HttpError(409, "Wait for or cancel the active load before changing sources or preparation settings.");
 }
 export function setPipelineState(projectId: string, version: number, patch: { status?: SavedPipeline["status"]; progress?: PipelineSummary | null; error?: string | null; qualityRunId?: string | null; filePath?: string; profiled?: boolean }): void {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const saved = readPipeline(projectId); if (!saved || saved.version !== version) return;
   const progress = patch.progress === undefined ? saved.progress : patch.progress;
   getDatabase().prepare("UPDATE project_pipelines SET status = ?, progress = ?, error = ?, quality_run_id = ?, prepared_path = COALESCE(?, prepared_path), profiled_version = ? WHERE project_id = ? AND version = ?")
     .run(patch.status ?? saved.status, progress === null ? null : JSON.stringify(progress), patch.error === undefined ? saved.error : patch.error, patch.qualityRunId === undefined ? saved.qualityRunId : patch.qualityRunId, patch.filePath ?? null, patch.profiled ? version : saved.profiledVersion, projectId, version);
 }
-export function preparedPath(projectId: string): string | null { const row = getDatabase().prepare("SELECT prepared_path FROM project_pipelines WHERE project_id = ?").get(projectId); return row?.prepared_path ? String(row.prepared_path) : null; }
+export function preparedPath(projectId: string): string | null {
+  if (!localMode()) requireProjectAccess(projectId, "viewer"); const row = getDatabase().prepare("SELECT prepared_path FROM project_pipelines WHERE project_id = ?").get(projectId); return row?.prepared_path ? String(row.prepared_path) : null; }
 
 export function createPreparationRun(projectId: string, version: number, warehouseRunId?: string): PreparationRun {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const id = randomUUID();
   getDatabase().prepare("INSERT INTO pipeline_quality_runs (id, project_id, pipeline_version, warehouse_run_id, status, started_at, owner_pid) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(id, projectId, version, warehouseRunId ?? null, "running", new Date().toISOString(), process.pid);
@@ -148,17 +159,21 @@ function readRun(row: Record<string, unknown>): PreparationRun {
     status: pipelineStatusSchema.parse(row.status), summary, startedAt: z.string().datetime().parse(row.startedAt), finishedAt: row.finishedAt === null ? null : z.string().datetime().parse(row.finishedAt), error: row.error === null ? null : String(row.error), rejectedCount: summary?.rowsRejected ?? Number(row.rejectedCount ?? 0) };
 }
 const runSelect = "SELECT q.id, q.project_id AS projectId, q.pipeline_version AS version, q.warehouse_run_id AS warehouseRunId, q.status, q.summary, q.started_at AS startedAt, q.finished_at AS finishedAt, q.error, (SELECT COUNT(*) FROM prepare_rejected_rows r WHERE r.quality_run_id = q.id) AS rejectedCount FROM pipeline_quality_runs q";
-export function listPreparationRuns(projectId: string): PreparationRun[] { return getDatabase().prepare(`${runSelect} WHERE q.project_id = ? ORDER BY q.started_at DESC, q.id DESC LIMIT 100`).all(projectId).map(readRun); }
+export function listPreparationRuns(projectId: string): PreparationRun[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer"); return getDatabase().prepare(`${runSelect} WHERE q.project_id = ? ORDER BY q.started_at DESC, q.id DESC LIMIT 100`).all(projectId).map(readRun); }
 export function getPreparationRun(projectId: string, runId: string): PreparationRun {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const row = getDatabase().prepare(`${runSelect} WHERE q.project_id = ? AND q.id = ?`).get(identity(projectId), identity(runId));
   if (!row) throw new HttpError(404, "Preparation run not found in this project."); return readRun(row);
 }
 export function finishPreparationRun(projectId: string, runId: string, status: SavedPipeline["status"], summary: PipelineSummary | null, error: string | null, rejectsPath: string): void {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   getPreparationRun(projectId, runId);
   getDatabase().prepare("UPDATE pipeline_quality_runs SET status = ?, summary = ?, finished_at = ?, error = ?, rejects_path = ? WHERE project_id = ? AND id = ?")
     .run(status, summary === null ? null : JSON.stringify(pipelineSummarySchema.parse(summary)), new Date().toISOString(), error, rejectsPath, projectId, runId);
 }
 export function savePreparationRejects(projectId: string, runId: string, rejects: readonly PrepareReject[]): void {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   getPreparationRun(projectId, runId);
   withTransaction(getDatabase(), () => {
     getDatabase().prepare("DELETE FROM prepare_rejected_rows WHERE quality_run_id = ?").run(runId);
@@ -167,6 +182,7 @@ export function savePreparationRejects(projectId: string, runId: string, rejects
   });
 }
 export function readPreparationRejects(projectId: string, runId: string): PrepareReject[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   getPreparationRun(projectId, runId);
   return getDatabase().prepare("SELECT step_id AS stepId, step_name AS stepName, rule_name AS ruleName, bucket, source_row_number AS rowNumber, raw_json AS rawJson FROM prepare_rejected_rows WHERE quality_run_id = ? ORDER BY ordinal LIMIT 100").all(runId)
     .map((row) => ({ stepId: String(row.stepId), stepName: String(row.stepName), ruleName: String(row.ruleName), ...(row.bucket ? { bucket: String(row.bucket) } : {}), rowNumber: Number(row.rowNumber), values: JSON.parse(String(row.rawJson)) }));

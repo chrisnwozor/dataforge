@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { errorResponse } from "@/lib/server/http";
 import { requireModelProject } from "@/lib/server/model-http";
 import { deleteDashboard, getDashboard, readDashboardBody, updateDashboard } from "@/lib/server/dashboards";
@@ -6,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string; dashboardId: string }> };
 
-export async function GET(_request: Request, context: Context): Promise<Response> {
+async function handleGET(_request: Request, context: Context): Promise<Response> {
   try {
     const id = await requireModelProject(context);
     const { dashboardId } = await context.params;
@@ -16,7 +17,7 @@ export async function GET(_request: Request, context: Context): Promise<Response
   }
 }
 
-export async function PUT(request: Request, context: Context): Promise<Response> {
+async function handlePUT(request: Request, context: Context): Promise<Response> {
   try {
     const id = await requireModelProject(context);
     const { dashboardId } = await context.params;
@@ -28,7 +29,7 @@ export async function PUT(request: Request, context: Context): Promise<Response>
   }
 }
 
-export async function DELETE(_request: Request, context: Context): Promise<Response> {
+async function handleDELETE(_request: Request, context: Context): Promise<Response> {
   try {
     const id = await requireModelProject(context);
     const { dashboardId } = await context.params;
@@ -38,3 +39,7 @@ export async function DELETE(_request: Request, context: Context): Promise<Respo
     return errorResponse(error, "The dashboard could not be deleted. Try again.");
   }
 }
+
+export const GET = withProjectRoute("viewer", handleGET);
+export const PUT = withProjectRoute("editor", handlePUT);
+export const DELETE = withProjectRoute("editor", handleDELETE);

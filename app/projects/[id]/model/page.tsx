@@ -1,3 +1,4 @@
+import { withProjectPage } from "@/lib/auth/guards";
 import { PageHeader } from "@/components/shared";
 import { ModelEditor } from "@/components/model-editor";
 import { getColumnProfiles } from "@/lib/data";
@@ -6,7 +7,7 @@ import { HttpError } from "@/lib/server/http";
 import { hasStoredPipeline } from "@/lib/server/prepare-storage";
 import { PreparationUnavailable } from "@/components/preparation-unavailable";
 export const metadata = { title: "Model editor" };
-export default async function ModelPage({
+async function ModelPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -36,3 +37,5 @@ export default async function ModelPage({
     </main>
   );
 }
+
+export default withProjectPage("editor", ModelPage);

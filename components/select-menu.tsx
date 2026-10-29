@@ -19,6 +19,7 @@ export function SelectMenu({
   id,
   style,
   align = "start",
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -27,6 +28,7 @@ export function SelectMenu({
   id?: string;
   style?: CSSProperties;
   align?: "start" | "end";
+  disabled?: boolean;
 }) {
   const selectedLabel =
     options.find((option) => option.value === value)?.label ?? value;
@@ -36,6 +38,7 @@ export function SelectMenu({
         <button
           id={id}
           type="button"
+          disabled={disabled}
           className={styles.trigger}
           style={style}
           aria-label={`${label}: ${selectedLabel}`}

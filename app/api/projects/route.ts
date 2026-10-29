@@ -1,3 +1,4 @@
+import { withWorkspaceRoute } from "@/lib/auth/guards";
 import { listProjects, type StoredProject } from "@/lib/server/projects";
 import { createProjectFromUpload } from "@/lib/server/uploads";
 import { errorResponse } from "@/lib/server/http";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export interface ProjectsResponse { projects: StoredProject[] }
 
-export async function GET(): Promise<Response> {
+async function handleGET(): Promise<Response> {
   try {
     return Response.json({ projects: listProjects() } satisfies ProjectsResponse);
   } catch (error) {
@@ -15,7 +16,7 @@ export async function GET(): Promise<Response> {
   }
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function handlePOST(request: Request): Promise<Response> {
   try {
     const result = await createProjectFromUpload(request);
     return Response.json(result, { status: 201 });
@@ -23,3 +24,6 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(error, "The project could not be saved. Try again.");
   }
 }
+
+export const GET = withWorkspaceRoute("viewer", handleGET);
+export const POST = withWorkspaceRoute("editor", handlePOST);
