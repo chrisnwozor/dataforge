@@ -53,14 +53,15 @@ function calendarCardinality(name: string, sources: SqlColumn[]): { distinctCoun
   if (!minima.length || !maxima.length) return {};
   const start = new Date(Math.min(...minima));
   const end = new Date(Math.max(...maxima));
+  // Query groups contain fact years, not the calendar's extra padding years.
+  // A two-year source must therefore select Month for its starter trend.
+  if (name === "Year") return { distinctCount: end.getUTCFullYear() - start.getUTCFullYear() + 1 };
   start.setUTCHours(0, 0, 0, 0); end.setUTCHours(0, 0, 0, 0);
   if (start.getUTCFullYear() > 1) start.setUTCFullYear(start.getUTCFullYear() - 1);
   else { start.setUTCMonth(0, 1); }
   if (end.getUTCFullYear() < 9999) end.setUTCFullYear(end.getUTCFullYear() + 1);
   else { end.setUTCMonth(11, 31); }
-  return name === "Year"
-    ? { distinctCount: end.getUTCFullYear() - start.getUTCFullYear() + 1 }
-    : name === "Date" ? { distinctCount: Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1 } : {};
+  return name === "Date" ? { distinctCount: Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1 } : {};
 }
 
 /** Derive metadata from exactly the same prepared SQL names used by the generator. No I/O. */

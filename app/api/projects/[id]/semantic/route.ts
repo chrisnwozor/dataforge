@@ -1,5 +1,5 @@
 import { errorResponse } from "@/lib/server/http";
-import { getSemanticModel, saveSemanticModel } from "@/lib/server/semantic";
+import { getSemanticModel, requireSemanticReady, saveSemanticModel } from "@/lib/server/semantic";
 import {
   readSemanticBody,
   requireSemanticProject,
@@ -12,9 +12,10 @@ export async function GET(
   context: SemanticProjectContext,
 ): Promise<Response> {
   try {
-    return Response.json(
-      await getSemanticModel(await requireSemanticProject(context)),
-    );
+    const id = await requireSemanticProject(context);
+    const model = await getSemanticModel(id);
+    const { run } = requireSemanticReady(id);
+    return Response.json(model, { headers: { "Cache-Control": "no-store", "X-DataForge-Run-Id": run.id } });
   } catch (error) {
     return errorResponse(
       error,

@@ -5,6 +5,9 @@ export interface ExploreValuesOptions {
   search?: string;
   signal?: AbortSignal;
   priority?: "values" | "prefetch";
+  /** Dashboards use the unified query POST for every result, including slicers. */
+  method?: "GET" | "POST";
+  bypassCache?: boolean;
 }
 export interface ExploreValuesCandidate {
   ref: AttributeRef;
@@ -24,22 +27,24 @@ function checkAbort(signal?: AbortSignal): void {
 export async function loadExploreValues(
   projectId: string,
   attribute: AttributeRef,
-  { version = "", search = "", signal, priority = "values" }: ExploreValuesOptions = {},
+  { version = "", search = "", signal, priority = "values", method = "GET", bypassCache = false }: ExploreValuesOptions = {},
 ): Promise<QueryResult> {
   checkAbort(signal);
   const term = search.trim().slice(0, 200);
-  const key = JSON.stringify([projectId, version, attribute.table, attribute.column, term]);
+  const key = JSON.stringify([projectId, version, attribute.table, attribute.column, term, method]);
   const cached = valuesCache.get(key);
-  if (cached && cached.expires > Date.now()) {
+  if (!bypassCache && cached && cached.expires > Date.now()) {
     valuesCache.delete(key);
     valuesCache.set(key, cached);
     return cached.result;
   }
   valuesCache.delete(key);
   const params = new URLSearchParams({ attribute: JSON.stringify(attribute), search: term, limit: "200" });
-  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/query/values?${params}`, {
+  const response = await fetch(method === "POST" ? `/api/projects/${encodeURIComponent(projectId)}/query` : `/api/projects/${encodeURIComponent(projectId)}/query/values?${params}`, {
     cache: "no-store",
-    headers: { "X-DataForge-Query-Purpose": priority },
+    method,
+    headers: { "X-DataForge-Query-Purpose": priority, ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
+    ...(method === "POST" ? { body: JSON.stringify({ kind: "values", attribute, search: term, limit: 200, hideUnknown: true, ...(bypassCache ? { cache: "bypass" } : {}) }) } : {}),
     signal,
   });
   const body = await response.json();

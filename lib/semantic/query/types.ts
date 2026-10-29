@@ -31,6 +31,8 @@ export interface SemanticQuery {
   hideUnknown: boolean;
   /** Opt-in uncached SQL Server STATISTICS TIME diagnostics. */
   diagnostics?: boolean;
+  /** Refresh without cache lookup/write or STATISTICS TIME overhead. */
+  cache?: "default" | "bypass";
 }
 export interface QueryResultColumn {
   key: string;

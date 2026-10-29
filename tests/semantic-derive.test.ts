@@ -70,6 +70,17 @@ describe("derived semantic defaults", () => {
     unknown.tables[0].columns[0].distinctCount = -1;
     expect(semanticModelSchema.safeParse(unknown).success).toBe(false);
   });
+  it("does not count generated calendar padding as observed years for starter trends", () => {
+    const short = structuredClone(input);
+    for (const column of short.columns.filter((column) => column.inferredType === "date")) {
+      column.minValue = "2021-01-01";
+      column.maxValue = "2022-12-31";
+    }
+    const semantic = deriveSemanticModel(short);
+    const calendar = semantic.tables.find((table) => table.id === semantic.date?.tableId)!;
+    expect(calendar.columns.find((column) => column.name === "Year")?.distinctCount).toBe(2);
+    expect(calendar.columns.find((column) => column.name === "Date")!.distinctCount).toBeGreaterThan(500);
+  });
   it("supports every default for a wide fact beyond 256 measures and preserves display names", () => {
     const wide = structuredClone(input);
     const source = wide.columns.find((column) => column.name === "Sales")!;

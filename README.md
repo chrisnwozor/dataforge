@@ -139,7 +139,7 @@ Storage contracts are in `lib/server/projects.ts`, profiler contracts in `lib/pr
 
 ## Later phases
 
-Upload, Profile, Model, Measures, Explore, Generate, Settings, and Runs now use real application state. Legacy fixtures remain isolated in `lib/data/mock.ts`; active run/history adapters do not use them. The landing illustration remains an illustration.
+Upload, Profile, Model, Measures, Explore, Dashboards, Generate, Settings, and Runs now use real application state. Legacy fixtures remain isolated in `lib/data/mock.ts`; active run/history adapters do not use them. The landing illustration remains an illustration.
 
 Future integration points:
 
@@ -329,7 +329,7 @@ Every query response includes a `timings` object, including cache hits and query
 
 Cache hits report fresh request timings, rather than the SQL duration saved with the original result. Their database phases are zero. `elapsedMs` now equals `timings.totalMs`, including Node preparation; the earlier elapsed timer started after compilation and measured only transport/driver work. `totalMs` can be larger than the sum of the displayed phases because it also includes response preparation and cleanup; these are server-side measurements, not the browser's entire network round trip.
 
-Healthy connections are reused across uncached queries. SQL admission permits **one active query per project and two per server/port**, with FIFO ordering within priorities: main query, pivot totals, open slicer, background prefetch. A new main query cancels obsolete lower-priority work for its project, including when its result is already cached. If another project's background work fills the server, the scheduler cancels only enough lower-priority work to admit queued main queries. Cancellation calls `request.cancel()`; project/server slots remain owned until driver cleanup finishes. Queues are bounded to 128 waiting jobs overall and 32 per project. Metadata, queueing, pool acquisition/login, and execution share the request's 30-second budget; entering a new stage never restarts that budget. A queued request times out without issuing SQL. Cleanup has a five-second cancellation grace; poisoned or unacknowledged sessions are physically closed. Changed settings retire the preceding pool. The transport itself also caps pooled active work at two. These controls are process-local; multiple app instances would require shared admission control.
+Healthy connections are reused across uncached queries. SQL admission permits **one active query per project and two per server/port**, with FIFO ordering within priorities: main query, pivot totals, open slicer, dashboard tiles, background prefetch. A new main query cancels obsolete lower-priority work for its project, including when its result is already cached. If another project's background work fills the server, the scheduler cancels only enough lower-priority work to admit queued main queries. Cancellation calls `request.cancel()`; project/server slots remain owned until driver cleanup finishes. Queues are bounded to 128 waiting jobs overall and 32 per project. Metadata, queueing, pool acquisition/login, and execution share the request's 30-second budget; entering a new stage never restarts that budget. A queued request times out without issuing SQL. Cleanup has a five-second cancellation grace; poisoned or unacknowledged sessions are physically closed. Changed settings retire the preceding pool. The transport itself also caps pooled active work at two. These controls are process-local; multiple app instances would require shared admission control.
 
 Measure expansion is memoized by semantic version and measure identity, with bounded caches and cycle/dependency limits preserved. Context-changing measures share base aggregates per filter context and compute derived expressions from aggregate columns. The simple path emits ratios directly alongside their aggregates in one SELECT/GROUP BY, allowing SQL Server to share identical aggregate operators without another fact scan. The regression benchmark uses the Superstore semantic model and these cumulative sets:
 
@@ -403,3 +403,49 @@ Generated data SELECT statements, including simple queries, searched values, and
 The Tedious session initializes with `SET ARITHABORT ON` through `enableArithAbort: true`, verified against the installed driver's initialization SQL. This setting was already enabled before this fix; it is not presented as the cause of the reported delay. Keeping the same setting in SSMS avoids one source of session/plan differences without an extra per-query round trip. The comparison script in `docs/query-timing.sql` sets it explicitly.
 
 Driver doubles verify queue priority, cancellation, cleanup ownership, pooled-session options, and the shared timeout budget. Compiler snapshots cover both paths, while generated-SQL result tests compare simple aggregates and ratios with the materialized equivalents over Superstore, including NULL and empty inputs. No SQL Server connection was used for this change; live wait/latency and spill checks remain local.
+
+## Dashboards
+
+Open **Dashboards** after **Explore** at `/projects/<id>/dashboards`. Create a blank dashboard or choose **Generate starter dashboard**, then rename, duplicate, or delete cards from the list. Saved dashboards open at `/projects/<id>/dashboards/<dashboardId>` in view mode; **Edit dashboard** enables layout and tile settings. Dashboard storage and text/layout editing work without SQL Server. Charts, KPI cards, and slicer results need the same configured connection and successful load as Explore; unavailable tiles show their own guidance rather than blocking the dashboard.
+
+Dashboards use the existing design system, dark default, light theme, SVG charts, and dnd-kit. Four tile types are supported:
+
+- **Chart:** references a saved Explore view or keeps an inline versioned ViewConfig. A referenced view uses its current saved configuration; a deleted view leaves a repairable tile error. **Open in Explore** includes the tile's view and applicable dashboard filters. A chart can export its rendered image as PNG.
+- **KPI:** one measure in the full filter context, with an optional comparison measure such as YoY %. Each value uses the measure's own format unless its main number format is overridden.
+- **Text:** paragraphs, headings, lists, quotes, emphasis, and inline code. Rendering uses escaped React text; HTML, scripts, and Markdown links are never interpreted as markup or executable URLs.
+- **Slicer:** a dimension attribute with searchable counted values, multi-select, or numeric/date ranges. Values are requested only when opened; no slicer, including attributes above 500 distinct values, is eagerly prefetched.
+
+Edit mode uses a 12-column snapped grid. Drag a move handle with a mouse or touch, use a corner handle to resize, or focus a handle and press arrow keys to move and Shift+arrows to resize. Collisions push tiles down; narrow screens stack tiles in visual order. The settings panel controls title, subtitle, measure formats, legends, saved-view selection, comparisons, and text/attribute settings. Undo/redo retains the last 50 document edits, including layout and settings. Changes autosave through serialized writes with **Saving… / Saved** status; failed saves retain edits and offer Retry. Concurrent edits in another tab return a conflict rather than overwriting that tab. Navigation and reload warn when changes remain unsaved.
+
+The filter bar shows active filters and the number/names of affected tiles. Filters apply to chart/KPI measures whose fact model can reach that attribute's table; they do not need to group by that attribute. Unknown or disconnected attributes are excluded from a tile's query. Dashboard and saved-view filters intersect. Turn on **Cross-filter charts** to filter from a clicked bar, slice, or member; clicking the same member again clears its attribute filter. **Clear all** removes dashboard filters.
+
+The metadata-only starter is deterministic. It chooses up to four plain SUM/COUNT/COUNT_BIG measures, attaches an available matching YoY measure, adds the main measure's Year trend (Month when known Year cardinality is below three; monthly trends retain Year + Month to keep different years separate), then up to three bars and two slicers ordered by known cardinality. Business dimensions are preferred for categories because the calendar already supplies the trend; calendar attributes are a fallback when no business dimensions exist. Bars never use attributes above 50 distinct values or guess unknown cardinalities. A model without a date dimension gets no invented time trend or YoY comparison. Empty measures receive an explanatory text tile.
+
+### Tile queries and cache
+
+Tiles become eligible through IntersectionObserver in visual order, with one pending client tile load by default, matching the existing server scheduler (one SQL request per project and two per server). The controller supports a maximum of two; dispatching one avoids spending a second tile's request timeout behind a slow SQL request. Tiles waiting in the client do not start their SQL deadline until dispatched. Each tile has its own skeleton, timeout, error, Cancel, and Retry; no all-tiles promise hides already completed tiles. Changing filters cancels old requests and debounces new work for 250 ms. Pivot totals remain separate semantic queries so ratios and averages are not summed in the browser. Open slicers have higher queue priority than background dashboard tiles.
+
+All dashboard result data, including slicer values, uses **POST `/api/projects/<id>/query`**. Charts and KPIs send the existing SemanticQuery with `X-DataForge-Query-Purpose: dashboard`. A slicer sends `{ kind: "values", attribute, search, limit: 200, hideUnknown: true }`, which reuses the existing distinct-values compiler, parameter bindings, cache, and scheduler. Explore's GET values endpoint remains available. Neither operation accepts SQL from the client.
+
+The client tile LRU is bounded to 64 entries / 16 MiB with a five-minute TTL. Keys include project, semantic model version, last successful run ID, tile/view config, and active filters; moving a tile alone does not refetch its data. The semantic metadata response provides the public run ID in `X-DataForge-Run-Id`. **Refresh**, Retry, and auto-refresh use `cache: "bypass"` on the same query POST to skip the server result cache without enabling SQL diagnostics. Refresh revalidates metadata and saved views before reloading tiles, and bypasses slicer caches as well. Each data tile shows **cached** or its elapsed milliseconds.
+
+### Present and print
+
+**Present** enters browser fullscreen when available and otherwise uses a chrome-free presentation layout. Escape exits. Auto-refresh is off by default; select 1, 5, or 15 minutes to refresh metadata and results automatically.
+
+**Export PDF** prepares all lazy tiles, then opens the browser print dialog. Ctrl+P uses the same preparation flow. Print styles use a light background, hide app/editor chrome, show the dashboard title, print date, and applied filters, and avoid splitting tiles across pages. Large Table/Pivot tiles print a clearly labeled bounded excerpt of long results so virtualized spacer rows cannot create hundreds of blank pages; open the view in Explore for the full CSV. Browser-menu printing during unfinished network work can show a loading note; use Export PDF for the complete preparation flow.
+
+### Dashboard storage and APIs
+
+SQLite additively creates `dashboards(id, project_id, name, description, layout, filters, settings, created_at, updated_at)`. Each JSON column has a strict version-1 Zod schema; invalid or future versions are reported without replacing stored data. Tile IDs are unique, layouts cannot overlap, and dashboards are limited to 60 tiles. Referenced Explore views must belong to the same project. Queries and transactional writes use parameters. No migration replaces existing project data or installs a native module.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /api/projects/<id>/dashboards` | Returns `{ dashboards }`. |
+| `POST /api/projects/<id>/dashboards` | Creates `{ name, description, layout, filters, settings }`. |
+| `GET /api/projects/<id>/dashboards/<dashboardId>` | Returns the saved dashboard. |
+| `PUT /api/projects/<id>/dashboards/<dashboardId>` | Updates supplied document fields; include the saved `updatedAt` for optimistic conflict detection. |
+| `DELETE /api/projects/<id>/dashboards/<dashboardId>` | Deletes the dashboard after UI confirmation. |
+| `POST /api/projects/<id>/dashboards/<dashboardId>/duplicate` | Copies it with new dashboard/tile IDs and preserves Explore view references. |
+
+Unit checks cover layout collisions/bounds/keyboard edits, undo/redo, starter generation with and without dates, filter reachability/cross-filter toggles, cache keys and bounds, lazy query ordering/cancellation/cache bypass, safe text/KPI rendering, SQLite persistence, and autosave races. Browser checks use explicit semantic/query fixtures and real local SQLite dashboard APIs; no SQL Server connection or live latency claim is required for these checks. Run the existing live checks locally when a database is available.

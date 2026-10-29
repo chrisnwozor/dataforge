@@ -47,6 +47,22 @@ beforeEach(async () => {
 afterEach(async () => { await queryScheduler.close(); queryScheduler.reset(); vi.restoreAllMocks(); });
 
 describe("semantic SQL scheduling through the real service", () => {
+  it("queues dashboard tiles without treating each tile as a superseding main query", async () => {
+    const first = deferred<Record<string, unknown>[]>();
+    state.execute = async () => state.calls.length === 1 ? first.promise : [{ m0: 200 }];
+    const one = runSemanticQuery(projectId, { measures: ["sales"], rows: [] }, undefined, undefined, { priority: "dashboard" });
+    await flush();
+    const two = runSemanticQuery(projectId, { measures: ["sales"], rows: [{ table: "fact", column: "order" }] }, undefined, undefined, { priority: "dashboard" });
+    await flush();
+    expect(state.calls).toHaveLength(1);
+    expect(state.calls[0].signal.aborted).toBe(false);
+    expect(queryScheduler.snapshot()).toEqual({ active: 1, queued: 1 });
+    first.resolve([{ m0: 100 }]);
+    expect((await one).rows[0].m0).toBe(100);
+    expect((await two).rows[0].m0).toBe(200);
+    expect(queryScheduler.getRevision(projectId)).toBe(0);
+  });
+
   it("cancels a lower-priority slicer and holds its slot until driver cleanup before starting the main query", async () => {
     const cleanup = deferred<Record<string, unknown>[]>();
     state.execute = async (compiled, signal) => {

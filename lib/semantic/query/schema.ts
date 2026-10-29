@@ -79,6 +79,7 @@ export const semanticQuerySchema = z
       .optional(),
     hideUnknown: z.boolean().default(true),
     diagnostics: z.boolean().default(false),
+    cache: z.enum(["default", "bypass"]).optional(),
   })
   .strict()
   .superRefine((query, ctx) => {
@@ -92,3 +93,13 @@ export const semanticQuerySchema = z
 export function normalizeQuery(input: unknown): SemanticQuery {
   return semanticQuerySchema.parse(input);
 }
+
+/** The POST values operation reuses the existing distinct-values compiler and queue. */
+export const distinctValuesQuerySchema = z.object({
+  kind: z.literal("values"),
+  attribute: z.union([reference, attributeRefSchema]),
+  search: z.string().max(200).default(""),
+  limit: z.number().int().min(1).max(200).default(200),
+  hideUnknown: z.boolean().default(true),
+  cache: z.enum(["default", "bypass"]).optional(),
+}).strict();
