@@ -8,8 +8,8 @@ import {
   requireModelProject,
   type ProjectModelContext,
 } from "@/lib/server/model-http";
-import { runSemanticQuery } from "@/lib/server/semantic-query";
-import { semanticQuerySchema } from "@/lib/semantic/query/schema";
+import { getDistinctValues, runSemanticQuery } from "@/lib/server/semantic-query";
+import { distinctValuesQuerySchema, semanticQuerySchema } from "@/lib/semantic/query/schema";
 import { resultToCsv } from "@/lib/explore/csv";
 
 export const runtime = "nodejs";
@@ -43,6 +43,15 @@ export async function POST(
     const csv = request.headers.get("accept")?.split(",").some((value) =>
       /^text\/csv(?:\s*;|\s*$)/i.test(value.trim()) && !/;\s*q=0(?:\.0*)?(?:\s*;|\s*$)/i.test(value),
     ) ?? false;
+    if (body && typeof body === "object" && "kind" in body && body.kind === "values") {
+      const parsed = distinctValuesQuerySchema.safeParse(body);
+      if (!parsed.success || csv) throw new HttpError(400, "Send a valid values query as JSON with an attribute, search, and a limit up to 200.");
+      const priority = request.headers.get("X-DataForge-Query-Purpose") ?? "values";
+      if (priority !== "values" && priority !== "prefetch") throw new HttpError(400, "Choose values or prefetch for a values request.");
+      return Response.json(await getDistinctValues(id, parsed.data.attribute, request.signal, parsed.data.hideUnknown, timing, {
+        search: parsed.data.search, limit: parsed.data.limit, priority, cache: parsed.data.cache,
+      }), { headers: { "Cache-Control": "no-store" } });
+    }
     if (csv) {
       // Validate before raising the export limit; exports use the same trusted compiler and driver.
       const validated = semanticQuerySchema.safeParse(body);
@@ -51,7 +60,7 @@ export async function POST(
       body = { ...validated.data, limit: 50_000 };
     }
     const priority = request.headers.get("X-DataForge-Query-Purpose") ?? "main";
-    if (priority !== "main" && priority !== "totals") throw new HttpError(400, "Choose main or totals for a semantic query request.");
+    if (priority !== "main" && priority !== "totals" && priority !== "dashboard") throw new HttpError(400, "Choose main, totals, or dashboard for a semantic query request.");
     const result = await runSemanticQuery(id, body, request.signal, timing, { priority });
     if (csv) return new Response(resultToCsv(result), {
       headers: {

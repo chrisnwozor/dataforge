@@ -19,6 +19,25 @@ beforeEach(() => { clearExploreValuesCache(); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); clearExploreValuesCache(); });
 
 describe("Explore bounded slicer requests", () => {
+  it("uses the unified POST for dashboard slicers and bypasses both caches on refresh", async () => {
+    const fetch = vi.fn<ValuesFetch>(async () => response());
+    vi.stubGlobal("fetch", fetch);
+    await loadExploreValues("p", ref("category"), { method: "POST", search: "Furniture" });
+    await loadExploreValues("p", ref("category"), { method: "POST", search: "Furniture" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/projects/p/query");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ "Content-Type": "application/json", "X-DataForge-Query-Purpose": "values" });
+    expect(JSON.parse(String(init.body))).toEqual({ kind: "values", attribute: ref("category"), search: "Furniture", limit: 200, hideUnknown: true });
+    await loadExploreValues("p", ref("category"), { method: "POST", search: "Furniture", bypassCache: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetch.mock.calls[1][1].body)).cache).toBe("bypass");
+    await loadExploreValues("p", ref("category"), { search: "Furniture" });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls[2][0]).toContain("/query/values?");
+  });
+
   it("uses server-side search and TOP 200 with the caller's priority and signal", async () => {
     const fetch = vi.fn<ValuesFetch>(async () => response());
     vi.stubGlobal("fetch", fetch);

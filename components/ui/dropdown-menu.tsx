@@ -31,7 +31,7 @@ function DropdownMenuContent({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
-    <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Portal container={typeof document === "undefined" ? undefined : document.fullscreenElement ?? undefined}>
       <div
         role="region"
         aria-label={`${props["aria-label"] ?? "Options"} menu`}

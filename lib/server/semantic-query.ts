@@ -162,6 +162,7 @@ async function executeCached(
   diagnostics = false,
   priority: QueryPriority = "main",
   expectedRevision = queryScheduler.getRevision(projectId),
+  cacheBypass = false,
 ): Promise<QueryResult> {
   let password = "";
   try {
@@ -192,7 +193,7 @@ async function executeCached(
       cacheInput,
       connectionVersion,
     );
-    const cached = diagnostics ? undefined : semanticCache.get(key);
+    const cached = diagnostics || cacheBypass ? undefined : semanticCache.get(key);
     addQueryPhase(timing, "cacheLookupMs", cacheStart);
     if (cached) {
       timing.sql = cached.sql;
@@ -261,7 +262,7 @@ async function executeCached(
     // Check cheap revisions instead of deriving/parsing the complete semantic model twice per query.
     const current = await requireSemanticReady(projectId);
     if (
-      !diagnostics &&
+      !diagnostics && !cacheBypass &&
       current.run.id === ready.run.id &&
       readSemanticStamp(projectId) === stamp &&
       (readPublicConnection().updatedAt ?? "") === connectionVersion
@@ -284,7 +285,7 @@ export async function runSemanticQuery(
   input: unknown,
   signal?: AbortSignal,
   timing: QueryTimingContext = startQueryTiming(),
-  options: { priority?: "main" | "totals" } = {},
+  options: { priority?: "main" | "totals" | "dashboard" } = {},
 ): Promise<QueryResult> {
   let normalized;
   const parseStart = performance.now();
@@ -313,6 +314,7 @@ export async function runSemanticQuery(
     normalized.diagnostics === true,
     priority,
     revision,
+    normalized.cache === "bypass",
   );
 }
 
@@ -361,7 +363,7 @@ export async function getDistinctValues(
   signal?: AbortSignal,
   hideUnknown = true,
   timing: QueryTimingContext = startQueryTiming(),
-  options: { search?: string; limit?: number; priority?: "values" | "prefetch" } = {},
+  options: { search?: string; limit?: number; priority?: "values" | "prefetch"; cache?: "default" | "bypass" } = {},
 ): Promise<QueryResult> {
   const revision = queryScheduler.getRevision(projectId);
   const search = options.search?.trim() ?? "";
@@ -389,5 +391,6 @@ export async function getDistinctValues(
     false,
     options.priority ?? "values",
     revision,
+    options.cache === "bypass",
   );
 }

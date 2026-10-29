@@ -160,6 +160,19 @@ export function getDatabase(): DatabaseSync {
       );
       CREATE INDEX IF NOT EXISTS explore_views_project_updated
         ON explore_views(project_id, updated_at DESC, id);
+      CREATE TABLE IF NOT EXISTS dashboards (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        layout TEXT NOT NULL,
+        filters TEXT NOT NULL,
+        settings TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS dashboards_project_updated
+        ON dashboards(project_id, updated_at DESC, id);
     `);
     // Serialize additive migrations across development workers opening the same file.
     database.exec("BEGIN IMMEDIATE");

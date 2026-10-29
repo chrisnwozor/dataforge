@@ -9,6 +9,7 @@ import {
   History,
   Sigma,
   ChartNoAxesCombined,
+  PanelsTopLeft,
 } from "lucide-react";
 const tabs = [
   { label: "Overview", path: "", Icon: LayoutDashboard },
@@ -16,6 +17,7 @@ const tabs = [
   { label: "Model", path: "/model", Icon: Workflow },
   { label: "Measures", path: "/measures", Icon: Sigma },
   { label: "Explore", path: "/explore", Icon: ChartNoAxesCombined },
+  { label: "Dashboards", path: "/dashboards", Icon: PanelsTopLeft },
   { label: "Generate", path: "/generate", Icon: Terminal },
   { label: "Runs", path: "/runs", Icon: History },
 ];
@@ -27,7 +29,7 @@ export function ProjectTabs({ id }: { id: string }) {
         <Link
           key={label}
           href={`/projects/${id}${path}`}
-          className={pathname === `/projects/${id}${path}` ? "active" : ""}
+          className={(pathname === `/projects/${id}${path}` || (path !== "" && pathname.startsWith(`/projects/${id}${path}/`))) ? "active" : ""}
         >
           <Icon size={13} />
           {label}

@@ -213,6 +213,43 @@ afterEach(() => {
 });
 
 describe("semantic execution and query endpoints", () => {
+  it("refreshes without reading or replacing a cached result and without diagnostics overhead", async () => {
+    const input = { measures: ["sales"], rows: [] };
+    await runSemanticQuery(projectId, input);
+    const reads = vi.spyOn(semanticCache, "get");
+    const writes = vi.spyOn(semanticCache, "set");
+    const response = await POST(request({ ...input, cache: "bypass" }), context);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ fromCache: false });
+    expect(reads).not.toHaveBeenCalled();
+    expect(writes).not.toHaveBeenCalled();
+    expect(state.calls).toHaveLength(2);
+    expect(state.calls.at(-1)?.diagnostics).not.toBe(true);
+    expect((await runSemanticQuery(projectId, input)).fromCache).toBe(true);
+    expect(state.calls).toHaveLength(2);
+    expect((await POST(request({ ...input, cache: "arbitrary" }), context)).status).toBe(400);
+  });
+
+  it("routes dashboard slicers through the same POST compiler, queue and strict validation", async () => {
+    const input = { kind: "values", attribute: { table: "region", column: "region:name" }, search: "50%_", limit: 20 };
+    const response = await POST(request(input), context);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ columns: [{ key: "value" }, { key: "count" }] });
+    expect(state.calls).toHaveLength(1);
+    expect(state.calls[0].limit).toBe(20);
+    expect(state.calls[0].params.some((parameter) => String(parameter.value).includes("50~%~_"))).toBe(true);
+    const refresh = await POST(request({ ...input, cache: "bypass" }), context);
+    expect(refresh.status).toBe(200);
+    expect(await refresh.json()).toMatchObject({ fromCache: false });
+    expect(state.calls).toHaveLength(2);
+    for (const bad of [{ ...input, sql: "SELECT 1" }, { ...input, limit: 201 }, { ...input, attribute: { table: "region", column: "missing" } }])
+      expect((await POST(request(bad), context)).status).toBe(400);
+    expect(state.calls).toHaveLength(2);
+    const dashboardRequest = request({ measures: ["sales"], rows: [] });
+    dashboardRequest.headers.set("X-DataForge-Query-Purpose", "dashboard");
+    expect((await POST(dashboardRequest, context)).status).toBe(200);
+  });
+
   it("runs diagnostics live without reading or replacing a normal cached result", async () => {
     const input = { measures: ["sales"], rows: [] };
     const ordinary = await runSemanticQuery(projectId, input);
