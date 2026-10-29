@@ -49,7 +49,7 @@ export async function POST(
       const priority = request.headers.get("X-DataForge-Query-Purpose") ?? "values";
       if (priority !== "values" && priority !== "prefetch") throw new HttpError(400, "Choose values or prefetch for a values request.");
       return Response.json(await getDistinctValues(id, parsed.data.attribute, request.signal, parsed.data.hideUnknown, timing, {
-        search: parsed.data.search, limit: parsed.data.limit, priority, cache: parsed.data.cache,
+        search: parsed.data.search, limit: parsed.data.limit, priority, cache: parsed.data.cache, ...(parsed.data.filters ? { filters: parsed.data.filters } : {}),
       }), { headers: { "Cache-Control": "no-store" } });
     }
     if (csv) {
@@ -60,7 +60,8 @@ export async function POST(
       body = { ...validated.data, limit: 50_000 };
     }
     const priority = request.headers.get("X-DataForge-Query-Purpose") ?? "main";
-    if (priority !== "main" && priority !== "totals" && priority !== "dashboard") throw new HttpError(400, "Choose main, totals, or dashboard for a semantic query request.");
+    if (priority !== "main" && priority !== "totals" && priority !== "dashboard" && priority !== "report" && priority !== "reportScheduled") throw new HttpError(400, "Choose a known semantic query purpose.");
+    if (body && typeof body === "object" && "report" in body && body.report === true && priority !== "report" && priority !== "reportScheduled") throw new HttpError(400, "Use the report query purpose for a report-sized result.");
     const result = await runSemanticQuery(id, body, request.signal, timing, { priority });
     if (csv) return new Response(resultToCsv(result), {
       headers: {

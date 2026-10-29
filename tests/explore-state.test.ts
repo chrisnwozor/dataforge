@@ -169,6 +169,16 @@ describe("Explore number formatting", () => {
     expect(formatMeasure(0.125, "percent")).toBe("12.5%");
     expect(formatMeasure(1.2, "decimals")).toBe("1.20");
   });
+  it("formats driver numeric measure strings while preserving integer precision and dimension text", () => {
+    expect(formatMeasure("2000", "number")).toBe("2,000");
+    expect(formatMeasure("9007199254740993", "number")).toBe("9,007,199,254,740,993");
+    expect(formatMeasure("-2000", "number")).toBe("-2,000");
+    expect(formatMeasure("1200.50", "currency")).toBe("$1,200.50");
+    expect(formatMeasure("0.1253", "percent")).toBe("12.53%");
+    expect(formatMeasure("1e3", "decimals")).toBe("1,000.00");
+    expect(formatAttribute("2022", { name: "Year", type: "number" })).toBe("2022");
+    expect(formatAttribute("002000", { name: "Code", type: "string" })).toBe("002000");
+  });
   it("uses an em dash for null, empty and invalid numeric values", () => {
     for (const value of [null, undefined, "", Number.NaN, Number.POSITIVE_INFINITY]) expect(formatValue(value)).toBe("—");
     expect(formatValue(false)).toBe("False");

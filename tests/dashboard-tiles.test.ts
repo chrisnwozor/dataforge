@@ -5,7 +5,7 @@ import { DashboardAttributeSlicer, DashboardPrintTable, DashboardText, Dashboard
 import { DashboardTileSettings } from "@/components/dashboards/tile-settings";
 import { createEmptyView } from "@/lib/explore/config";
 import { decodeViewConfig } from "@/lib/explore/url";
-import type { ChartTile, KpiTile } from "@/lib/dashboards/schema";
+import { kpiTileSchema, type ChartTile, type KpiTile } from "@/lib/dashboards/schema";
 import type { SemanticModel } from "@/lib/semantic/types";
 import type { QueryResult } from "@/lib/semantic/query/types";
 
@@ -29,11 +29,19 @@ const model: SemanticModel = {
     { id: "yoy", name: "Sales YoY %", expression: "DIVIDE([Sales], [Sales])", format: "percent", folder: "", description: "", isAuto: true, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
   ],
 };
+const datedModel: SemanticModel = {
+  ...model,
+  date: { tableId: "date", dateColumnId: "date:date", keyColumnId: "date:key", factColumnId: "fact:date" },
+  tables: [...model.tables, { id: "date", name: "dim_date", schema: "dw", sqlName: "dim_date", kind: "dimension", keyColumnId: "date:key", columns: [
+    { id: "date:date", tableId: "date", name: "Date", sqlName: "date", type: "date", role: "attribute" },
+  ] }],
+};
 const base = { id: "tile", x: 0, y: 0, w: 6, h: 4, title: "Sales summary", subtitle: "", numberFormat: "auto" as const, showLegend: true };
 const kpi: KpiTile = { ...base, type: "kpi", measure: "sales", comparisonMeasure: "yoy" };
 const view = { ...createEmptyView(), viz: "bar" as const, rows: [{ table: "product", column: "category" }], values: ["sales"] };
 const chart: ChartTile = { ...base, type: "chart", source: { kind: "inline", config: view } };
 const result: QueryResult = { columns: [{ key: "m0", name: "Sales", type: "number", role: "measure" }, { key: "m1", name: "Sales YoY %", type: "number", role: "measure" }], rows: [{ m0: 1200.5, m1: 0.125 }], rowCount: 1, truncated: false, elapsedMs: 12, fromCache: false, sql: "SELECT generated_only" };
+const comparison = { measure: "yoy", label: "2024 vs 2023", result: { ...result, columns: [result.columns[1]], rows: [{ m1: 0.1253 }] } };
 afterEach(() => vi.unstubAllGlobals());
 
 describe("dashboard tile rendering", () => {
@@ -49,19 +57,52 @@ describe("dashboard tile rendering", () => {
     expect(html).not.toMatch(/<script|<img|href=|dangerouslySetInnerHTML/);
   });
 
-  it("formats KPI and comparison values from their own semantic formats", () => {
-    const html = renderToStaticMarkup(createElement(DashboardTileContent, { projectId, tile: kpi, model, views: [], state: { status: "success", result, elapsedMs: 12 }, filters: [], onFilterChange: () => {}, onRetry: () => {} }));
+  it("labels the separate latest-period comparison and ignores an all-range YoY value", () => {
+    const html = renderToStaticMarkup(createElement(DashboardTileContent, { projectId, tile: kpi, model: datedModel, views: [], state: { status: "success", result: { ...result, rows: [{ m0: 1200.5, m1: 0.5302 }] }, kpi: { periodLabel: "All time", comparison }, elapsedMs: 12 }, filters: [], onFilterChange: () => {}, onRetry: () => {} }));
     expect(html).toContain("$1,200.50");
-    expect(html).toContain("12.5%");
+    expect(html).toContain("+12.53%");
+    expect(html).toContain("2024 vs 2023");
+    expect(html).not.toContain("53.02%");
     expect(html).toContain("Sales YoY %");
-    expect(html).toContain("Current dashboard filter context");
+    expect(html).toContain("All time · Current dashboard filter context");
   });
 
   it("honors a KPI override without changing comparison formatting and handles null results", () => {
-    const html = renderToStaticMarkup(createElement(DashboardTileContent, { projectId, tile: { ...kpi, numberFormat: "number" }, model, views: [], state: { status: "success", result: { ...result, rows: [{ m0: 2022, m1: null }] }, elapsedMs: 12 }, filters: [], onFilterChange: () => {}, onRetry: () => {} }));
+    const html = renderToStaticMarkup(createElement(DashboardTileContent, { projectId, tile: { ...kpi, numberFormat: "number" }, model: datedModel, views: [], state: { status: "success", result: { ...result, rows: [{ m0: 2022 }] }, kpi: { periodLabel: "2024", comparison: { ...comparison, result: { ...comparison.result, rows: [{ m1: null }] } } }, elapsedMs: 12 }, filters: [], onFilterChange: () => {}, onRetry: () => {} }));
     expect(html).toContain("2,022");
     expect(html).not.toContain("$2,022");
     expect(html).toContain("—");
+    expect(html).toContain("2024 · Current dashboard filter context");
+  });
+
+  it("hides comparisons without a date dimension and never renders legacy unbounded comparison results", () => {
+    const noDate = renderToStaticMarkup(createElement(DashboardTileContent, { projectId, tile: kpi, model, views: [], state: { status: "success", result, kpi: { comparison }, elapsedMs: 12 }, filters: [], onFilterChange: () => {}, onRetry: () => {} }));
+    expect(noDate).not.toContain("Sales YoY %");
+    expect(noDate).not.toContain("2024 vs 2023");
+    const legacy = renderToStaticMarkup(createElement(DashboardTileContent, { projectId, tile: kpi, model: datedModel, views: [], state: { status: "success", result, elapsedMs: 12 }, filters: [], onFilterChange: () => {}, onRetry: () => {} }));
+    expect(legacy).not.toContain("12.5%");
+    expect(legacy).not.toContain("Sales YoY %");
+  });
+
+  it("formats SQL driver count strings with thousands separators and preserves numeric comparisons", () => {
+    const counts: SemanticModel = { ...datedModel, measures: [{ ...model.measures[0], id: "count", name: "Row Count", expression: "COUNT_BIG(*)", format: "number" }, model.measures[1]] };
+    const html = renderToStaticMarkup(createElement(DashboardTileContent, { projectId, tile: { ...kpi, measure: "count" }, model: counts, views: [], state: { status: "success", result: { ...result, columns: [{ ...result.columns[0], name: "Row Count" }], rows: [{ m0: "2000" }] }, kpi: { periodLabel: "All time", comparison: { ...comparison, result: { ...comparison.result, rows: [{ m1: "0.1253" }] } } }, elapsedMs: 12 }, filters: [], onFilterChange: () => {}, onRetry: () => {} }));
+    expect(html).toContain("2,000");
+    expect(html).toContain("+12.53%");
+  });
+
+  it("preserves the old KPI period default and exposes explicit period settings", () => {
+    expect(kpiTileSchema.parse(kpi).period).toBeUndefined();
+    expect(kpiTileSchema.parse({ ...kpi, period: "latestQuarter" }).period).toBe("latestQuarter");
+    expect(kpiTileSchema.safeParse({ ...kpi, period: "lastWeek" }).success).toBe(false);
+    const settings = renderToStaticMarkup(createElement(DashboardTileSettings, { tile: kpi, model: datedModel, views: [], onChange: () => {} }));
+    expect(settings).toContain('aria-label="KPI period: All time"');
+    expect(settings).toContain("latest complete year, quarter, or month");
+    expect(settings).toContain("replace calendar filters");
+    const quarter = renderToStaticMarkup(createElement(DashboardTileSettings, { tile: { ...kpi, period: "latestQuarter" }, model: datedModel, views: [], onChange: () => {} }));
+    expect(quarter).toContain('aria-label="KPI period: Latest quarter"');
+    const noDate = renderToStaticMarkup(createElement(DashboardTileSettings, { tile: kpi, model, views: [], onChange: () => {} }));
+    expect(noDate).toContain("Period selection and time comparisons require a date dimension");
   });
 
   it("keeps text and missing-view failures usable without querying or a semantic connection", () => {

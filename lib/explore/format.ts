@@ -27,6 +27,18 @@ export function formatValue(value: QueryValue | undefined, options: ValueFormat 
 }
 
 export function formatMeasure(value: QueryValue | undefined, format: MeasureFormat | "auto" = "number"): string {
+  // Tedious returns SQL BIGINT (including COUNT_BIG) as a string. Only measure
+  // values are coerced: dimension members such as Year and codes keep their text.
+  if (typeof value === "string" && /^[+-]?\d+$/.test(value)) {
+    const integer = BigInt(value);
+    return format === "currency" ? currency.format(integer)
+      : format === "percent" ? percent.format(integer)
+        : format === "decimals" ? decimals.format(integer) : number.format(integer);
+  }
+  if (typeof value === "string" && /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value)) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? formatValue(numeric, { format: format === "auto" ? "number" : format }) : "—";
+  }
   return formatValue(value, { format: format === "auto" ? "number" : format });
 }
 

@@ -1,6 +1,7 @@
 .content { min-width:0; height:100%; display:flex; flex-direction:column; }
 .chart { min-width:0; flex:1; overflow:auto; scrollbar-width:thin; }
-.chart :global(svg[data-explore-chart]) { height:auto; max-height:340px; }
+.chart:has(:global([data-chart-fit=true])) { overflow:hidden; min-height:0; }
+.chart:has(:global([data-chart-fit=true])) .interactiveResult { height:100%; min-height:0; }
 .chart :global(table) { font-size:11px; }
 .placeholder,.skeleton { min-height:120px; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--muted); font-size:12px; text-align:center; padding:15px; }
 .placeholder p,.skeleton p { max-width:320px; line-height:1.7; }
@@ -86,6 +87,6 @@
 .printOnly { display:none; }
 @keyframes shimmer { from { opacity:.5; } to { opacity:1; } }
 @keyframes spin { to { transform:rotate(360deg); } }
-@media(max-width:420px) { .settings { padding:14px; } .kpiValue { font-size:31px; } .slicerNote { font-size:10px; } .inlineSlicer { max-width:100%; } .chart :global(svg[data-explore-chart]) { max-height:300px; } }
+@media(max-width:420px) { .settings { padding:14px; } .kpiValue { font-size:31px; } .slicerNote { font-size:10px; } .inlineSlicer { max-width:100%; } }
 @media(prefers-reduced-motion:reduce) { .skeleton>span,.spin { animation:none; } }
 @media print { .settings,.popover,.slicerTrigger,.clearSlicer,.waiting,.failure button { display:none!important; } .text,.chart { height:auto; overflow:visible; } .chart :global(details),.chart :global(tr[aria-hidden=true]),.tableChart .interactiveResult { display:none!important; } .chart :global([role=region]) { height:auto!important; max-height:none!important; min-height:0!important; overflow:visible!important; } .chart :global(table) { max-width:100%; } .printTable { display:block; break-inside:avoid; color:#111; } .printTable table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:8pt; } .printTable caption { text-align:left; font-size:7pt; color:#444; line-height:1.5; margin-bottom:8px; caption-side:bottom; padding-top:6px; } .printTable th,.printTable td { text-align:left; padding:3px 5px; border-bottom:1px solid #ddd; color:#111; background:#fff; } .printTable th { font-weight:600; font-size:7.5pt; } .printTable td span,.printTable th { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .printTable td span { display:block; } .slicerNote { display:none; } .printOnly { display:block; color:#333; font-size:10pt; } .previous { color:#555; font-size:8pt; } .kpi { min-height:0; } .kpiValue { color:#111; font-size:25pt; } .kpiLabel,.kpiContext,.comparison span { color:#444; } .skeleton { min-height:100px; } .skeleton>span { background:#eee; animation:none; } }

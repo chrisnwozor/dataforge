@@ -18,6 +18,7 @@ interface ResultsProps {
   resultConfig?: ViewConfig | null;
   totals?: ExploreTotals;
   loading?: boolean;
+  fitToContainer?: boolean;
   onMemberClick?: (attribute: AttributeRef, value: QueryValue) => void;
 }
 
@@ -106,7 +107,7 @@ function PivotTable({ result, config, model, totals, onMemberClick }: ResultsPro
   </>;
 }
 
-function ChartResult({ result, config, model, onMemberClick }: ResultsProps & { result: QueryResult }) {
+function ChartResult({ result, config, model, onMemberClick, fitToContainer }: ResultsProps & { result: QueryResult }) {
   const chart = useMemo(() => {
     const shape = config.viz === "kpi" ? { rows: [], columns: [] } : config;
     const pivot = buildPivot(result, shape);
@@ -129,19 +130,19 @@ function ChartResult({ result, config, model, onMemberClick }: ResultsProps & { 
   if (config.viz === "table" || config.viz === "pivot") return null;
   return <>
     {chart.truncatedColumns && <p className={styles.note}>Showing at most 50 column series members. Add a filter to narrow the chart.</p>}
-    <ExploreChart kind={config.viz} title={config.options.title || "Explore your data"} data={chart.data} series={chart.series} horizontal={config.options.barOrientation === "horizontal"} stacked={config.options.stacked} showLegend={config.options.showLegend} colors={config.options.seriesColors} onMemberClick={chart.attribute && onMemberClick ? (datum) => onMemberClick(chart.attribute, chart.members.get(datum.key) ?? null) : undefined} />
+    <ExploreChart fitToContainer={fitToContainer} kind={config.viz} title={config.options.title || "Explore your data"} data={chart.data} series={chart.series} horizontal={config.options.barOrientation === "horizontal"} stacked={config.options.stacked} showLegend={config.options.showLegend} colors={config.options.seriesColors} onMemberClick={chart.attribute && onMemberClick ? (datum) => onMemberClick(chart.attribute, chart.members.get(datum.key) ?? null) : undefined} />
   </>;
 }
 
-export function ExploreResults({ config, model, result, resultConfig, totals, loading, onMemberClick }: ResultsProps) {
+export function ExploreResults({ config, model, result, resultConfig, totals, loading, onMemberClick, fitToContainer }: ResultsProps) {
   // Keep metadata and data atomic while React defers a large render or a request fails.
   const displayConfig = resultConfig ?? config;
   const snapshot = useMemo(() => ({ result, config: displayConfig, totals }), [result, displayConfig, totals]);
   const deferred = useDeferredValue(snapshot);
   if (!deferred.result) return <div className={styles.empty} role="status">{loading ? <><div className={styles.skeleton} /><div className={styles.skeleton} /><div className={styles.skeleton} /><span>Querying your warehouse…</span></> : "Add a measure and an attribute to explore your data."}</div>;
   const stale = loading || snapshot !== deferred || deferred.config !== config;
-  const props = { config: deferred.config, model, result: deferred.result, totals: deferred.totals, onMemberClick: stale ? undefined : onMemberClick };
-  return <div className={stale ? styles.dimmed : undefined} aria-busy={loading}>
+  const props = { config: deferred.config, model, result: deferred.result, totals: deferred.totals, onMemberClick: stale ? undefined : onMemberClick, fitToContainer };
+  return <div className={`${stale ? styles.dimmed : ""} ${fitToContainer ? styles.fitted : ""}`} aria-busy={loading}>
     {deferred.result.truncated && <p className={styles.note} role="status">Query reached the 50,000-row or 50-column pivot limit. Add filters or Top N to explore a smaller result; CSV exports have the same cap.</p>}
     {deferred.result.rows.length === 0 ? <p className={styles.empty}>No results match these filters. Clear a filter or choose a different field.</p>
       : deferred.config.viz === "table" ? <LongTable {...props} />

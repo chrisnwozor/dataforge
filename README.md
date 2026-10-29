@@ -411,7 +411,7 @@ Open **Dashboards** after **Explore** at `/projects/<id>/dashboards`. Create a b
 Dashboards use the existing design system, dark default, light theme, SVG charts, and dnd-kit. Four tile types are supported:
 
 - **Chart:** references a saved Explore view or keeps an inline versioned ViewConfig. A referenced view uses its current saved configuration; a deleted view leaves a repairable tile error. **Open in Explore** includes the tile's view and applicable dashboard filters. A chart can export its rendered image as PNG.
-- **KPI:** one measure in the full filter context, with an optional comparison measure such as YoY %. Each value uses the measure's own format unless its main number format is overridden.
+- **KPI:** one main measure with a **Period** setting: All time (the compatible default), Latest year, Latest quarter, or Latest month. All time respects the dashboard's current filters; an explicit period replaces calendar filters while keeping other slicers. A time comparison is queried separately over the latest complete interval indicated by its expression (YoY: year, prior-quarter: quarter, prior-month: month), with an explicit label such as **2024 vs 2023 +12.53%**. It never compares the entire ungrouped date range against a shifted range. Comparisons are hidden without a valid date dimension. Each number uses its own measure format; integer count strings from the SQL driver receive thousands separators without losing BIGINT precision.
 - **Text:** paragraphs, headings, lists, quotes, emphasis, and inline code. Rendering uses escaped React text; HTML, scripts, and Markdown links are never interpreted as markup or executable URLs.
 - **Slicer:** a dimension attribute with searchable counted values, multi-select, or numeric/date ranges. Values are requested only when opened; no slicer, including attributes above 500 distinct values, is eagerly prefetched.
 
@@ -419,7 +419,9 @@ Edit mode uses a 12-column snapped grid. Drag a move handle with a mouse or touc
 
 The filter bar shows active filters and the number/names of affected tiles. Filters apply to chart/KPI measures whose fact model can reach that attribute's table; they do not need to group by that attribute. Unknown or disconnected attributes are excluded from a tile's query. Dashboard and saved-view filters intersect. Turn on **Cross-filter charts** to filter from a clicked bar, slice, or member; clicking the same member again clears its attribute filter. **Clear all** removes dashboard filters.
 
-The metadata-only starter is deterministic. It chooses up to four plain SUM/COUNT/COUNT_BIG measures, attaches an available matching YoY measure, adds the main measure's Year trend (Month when known Year cardinality is below three; monthly trends retain Year + Month to keep different years separate), then up to three bars and two slicers ordered by known cardinality. Business dimensions are preferred for categories because the calendar already supplies the trend; calendar attributes are a fallback when no business dimensions exist. Bars never use attributes above 50 distinct values or guess unknown cardinalities. A model without a date dimension gets no invented time trend or YoY comparison. Empty measures receive an explanatory text tile.
+The metadata-only starter is deterministic. It chooses up to four plain SUM/COUNT/COUNT_BIG measures, attaches an available matching YoY measure, adds the main measure's Year trend (Month when known Year cardinality is below three; monthly trends retain Year + Month to keep different years separate), then up to three bars and two slicers ordered by known cardinality. Trend and bar tiles start at the same grid height. Graphical charts fit their tile instead of adding an inner chart scrollbar; long category-axis labels use an ellipsis and expose the complete label in a tooltip. Business dimensions are preferred for categories because the calendar already supplies the trend; calendar attributes are a fallback when no business dimensions exist. Bars never use attributes above 50 distinct values or guess unknown cardinalities. A model without a date dimension gets no invented time trend or YoY comparison. Empty measures receive an explanatory text tile.
+
+Complete KPI periods use the latest observed joined **fact date** and the viewer's local calendar date; the padded calendar's final date never selects a period. The comparison chooses the newest observed year, quarter, or month whose calendar end has closed by that local as-of date. A historical 2024 range ending on December 30 still compares the complete 2024 calendar interval with 2023 once 2024 has closed; missing a transaction on December 31 does not discard that year. The date lookup is a bounded semantic query shared by visible KPI tiles in the same model/load/filter context. The checked-in `samples/superstore_sales.csv` spans 2024-01-01 through 2026-09-26, so its yearly comparison during October 2026 is 2025 vs 2024 (**-8.27%**), while its latest closed quarter/month are Q3 2026 and September 2026. A separate 2023/2024 regression fixture verifies the reported **+12.53%** case; the sample CSV is not rewritten to manufacture that result.
 
 ### Tile queries and cache
 
@@ -449,3 +451,54 @@ SQLite additively creates `dashboards(id, project_id, name, description, layout,
 | `POST /api/projects/<id>/dashboards/<dashboardId>/duplicate` | Copies it with new dashboard/tile IDs and preserves Explore view references. |
 
 Unit checks cover layout collisions/bounds/keyboard edits, undo/redo, starter generation with and without dates, filter reachability/cross-filter toggles, cache keys and bounds, lazy query ordering/cancellation/cache bypass, safe text/KPI rendering, SQLite persistence, and autosave races. Browser checks use explicit semantic/query fixtures and real local SQLite dashboard APIs; no SQL Server connection or live latency claim is required for these checks. Run the existing live checks locally when a database is available.
+
+## Paginated reports
+
+Open **Reports** at `/projects/<id>/reports`. Create a blank definition, duplicate an existing report, or choose **Generate starter report** for a category sales table with server-computed subtotals and a monthly summary when a date dimension is available. The list shows parameter counts, the last run, and enabled schedules. Saved reports open at `/projects/<id>/reports/<reportId>` with designer, preview, runs, and schedule controls. Creating and editing definitions does not require a SQL Server connection; running data-bound items uses the same configured warehouse and successful-load requirements as Explore.
+
+The version-1 report definition contains Letter/A4/Legal page size, portrait/landscape orientation, point-based margins, title/subtitle/header text, run date, applied parameters, and footer/page numbering. Body items are tables, matrices, SVG charts, plain text, and explicit page breaks. Tables support field-bound columns, width/alignment/number formats, up to three row-group levels, repeated headers, keep-group-together, conditional greater/less formatting, hide-on-empty, and group Top N. The designer supports mouse and keyboard item ordering, undo/redo, and serialized autosave with optimistic conflict detection. Text uses escaped content; definitions and parameters never accept arbitrary SQL.
+
+Report parameters support single/multiple selections, date ranges, numbers, and text. Each binds to a semantic dimension attribute, can have a default or All value, and may depend on another parameter. Changing a parent clears its descendants. Distinct values load only on demand, with search and a 200-value cap; dependent choices include the parent parameter filters. Server-side Zod validation checks types, required values, ranges, known IDs, and dependency cycles before parameter values become typed semantic filters.
+
+### Preview and exports
+
+**Run report** creates a persisted background run. The paginated viewer supports zoom and page navigation and renders pages lazily. PDF and preview use the same pure layout engine, fixed row heights, header repetition, explicit breaks, and group/orphan/widow rules. A group which fits on one page stays together when requested; oversized groups split with repeated table headings. Report headers and footers include the run's actual date/parameters and Page X of Y.
+
+Exports are produced on the server using JavaScript only:
+
+- **PDF:** selectable embedded-font text, vector charts, repeated table headings, and page numbers; no browser executable or native renderer.
+- **Excel:** one worksheet per table/matrix, frozen headings, numeric cell formats, and grouped subtotal rows.
+- **CSV:** flat detail rows with escaped fields and spreadsheet-formula protection.
+
+Downloads stream saved files from `data/exports/<reportId>/<runId>/`. Paths are rebuilt from validated UUIDs and a PDF/XLSX/CSV whitelist; filenames are sanitized, symlinked export paths are rejected, and connection credentials are never included. The run history records status, parameters, rows, pages, duration, errors, and the generated download links. Completed runs can be deleted; deleting an active run requires cancellation first.
+
+Reports have a **100,000 displayed-row cap**, with a visible truncation warning. Explore remains capped at 50,000 rows. Large or wide reports may need narrower filters or separate definitions; matrices retain the existing 50-column-member pivot cap. Each subtotal/grand total comes from a separate server context so ratios, averages, and distinct counts are correct; the app never adds displayed ratios to invent a total. All measures sharing an identical grouping/filter/sort context are batched in one query and reused across report items.
+
+All report data flows through **POST `/api/projects/<id>/query`** with typed semantic requests and the existing per-project/server SQL scheduler. One report dispatches one query at a time. Interactive reports use the `report` purpose; scheduled reports use the lowest `reportScheduled` priority and yield to new interactive work. Cancel aborts the in-flight request through the existing driver cancellation path. Result-cache keys include model version, successful warehouse run ID, report definition, parameters, and saved-view configurations. Run execution checks the model/load again before publishing files so it cannot silently combine contexts from different warehouse loads.
+
+### Scheduling and retention
+
+Scheduling requires **one persistent Node process**, the same deployment model as warehouse-run execution. It is not a serverless job service; stopping the process stops the scheduler and background exports. Keep using Node **22.13+** and the normal `pnpm build` / `pnpm start` workflow. No SQL Server connection is configured in this cloud environment; live export/result checks remain local.
+
+Use the daily, weekly, or monthly picker, or enter a numeric five-field cron expression (`minute hour day-of-month month day-of-week`) with `*`, lists, ranges, and steps. Pick an IANA timezone such as `America/New_York`, saved parameters, export formats, and enable/disable the schedule. **Run now** uses its saved parameters and formats. Next-run timestamps are displayed in the viewer's timezone. If both day-of-month and day-of-week are restricted, either may match, following normal cron OR semantics.
+
+Times are evaluated in the schedule's timezone, independent of the host timezone. A nonexistent spring-forward wall time is skipped; a repeated fall-back wall minute runs once at its first occurrence. The scheduler checks every 30 seconds. Missed runs while the app was stopped are skipped and logged instead of replaying a backlog. Atomic schedule advancement plus the report's SQLite active-run lock prevents overlapping ticks or runs of the same report. Bootstrap recovery marks interrupted runs as failed only when their owning process is absent; it preserves a live process's lease.
+
+Retention defaults to the **last 20 completed runs per report** and is configurable in the definition (1–1,000). Successful runs prune older completed records and their exports; active runs are retained. Export storage is local to `DATAFORGE_DATA_DIR` (default `./data`) and should be included in the same backup strategy as `dataforge.db`. No email or external delivery service is configured.
+
+### Report storage and APIs
+
+SQLite additively creates `reports`, `report_runs`, and `report_schedules`, preserving projects, saved views, and dashboards. Definition JSON is strictly Zod validated and versioned; invalid/future saved JSON is reported without overwriting it. All access is project scoped and values are passed through prepared statements.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /api/projects/<id>/reports` | Lists reports with last-run and enabled-schedule summaries. |
+| `POST /api/projects/<id>/reports` | Creates `{ name, description, definition }`. |
+| `GET /api/projects/<id>/reports/<reportId>` | Opens the saved report. |
+| `PUT /api/projects/<id>/reports/<reportId>` | Saves supplied edits; include `updatedAt` for conflict detection. |
+| `DELETE /api/projects/<id>/reports/<reportId>` | Deletes an inactive report and its saved exports. |
+| `POST /api/projects/<id>/reports/<reportId>/duplicate` | Copies the definition with independent item IDs. |
+| `/api/projects/<id>/reports/<reportId>/runs` | Lists or starts report runs. |
+| `/api/projects/<id>/reports/<reportId>/schedules` | Lists or creates schedules; member routes edit/delete them. |
+
+Unit and driver-double checks cover versioning, parameters/cascading, query/subtotal planning, pagination, formatting, export structure, path safety, retention, run concurrency/recovery, cron timezones/DST, missed runs, and no-overlap scheduling. Browser checks use semantic/query fixtures and real local SQLite report APIs. These checks do not establish live SQL Server numeric results or performance; run the live checks locally against your warehouse.

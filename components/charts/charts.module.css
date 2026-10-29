@@ -38,3 +38,16 @@
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media (max-width: 420px) { .summary { font-size: 11px; } .legend { gap: 7px 12px; } .tooltip { max-width: 220px; } }
 @media (prefers-reduced-motion: reduce) { .chart *, .chart *::before, .chart *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* Dashboard charts use the tile's available frame, not a fixed 340px canvas plus prose. */
+.fitted { position:relative; display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; }
+.fitted>.summary { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.fitted>.frame { flex:1 1 0; min-height:0; }
+.fitted .svg { width:100%; height:100%; overflow:hidden; }
+.fitted .legend { flex:none; padding-top:4px; gap:4px 12px; max-height:40px; overflow:auto; font-size:10px; }
+.fitted>.note { flex:none; margin:4px 0 0; font-size:10px; line-height:1.4; }
+.fitted>.fallback { flex:none; margin-top:7px; padding-top:6px; }
+.fitted>.fallback[open] { position:absolute; z-index:3; inset:0; margin:0; padding:10px; background:var(--surface); border:1px solid var(--line); border-radius:5px; overflow:hidden; }
+.fitted>.fallback[open] .tableScroll { height:calc(100% - 42px); margin-top:8px; }
+.fitted>.fallback[open]:has(.columnPages) .tableScroll { height:calc(100% - 78px); }
+@media print { .fitted { display:block; height:auto; overflow:visible; } .fitted>.frame { height:260px; } .fitted .svg { height:260px; } .fitted .legend { max-height:none; overflow:visible; } }

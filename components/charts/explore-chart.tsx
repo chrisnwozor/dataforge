@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { bandScale, compactTick, donutArc, lineSegments, linearScale, niceTicks, numericDomain, shortenLabel } from "./scales";
+import { bandScale, compactTick, donutArc, lineSegments, linearScale, niceTicks, numericDomain, shortenLabel, fitAxisLabel } from "./scales";
 import type { ChartDatum, ChartSeries, ExploreChartProps } from "./types";
 import styles from "./charts.module.css";
 
@@ -9,20 +9,25 @@ const palette = ["var(--blue)", "var(--muted)", "var(--green)", "var(--amber)", 
 const formatDefault = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 const number = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? value : null;
 
-function useWidth() {
+function useFrameSize(fitToContainer: boolean) {
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(640);
+  const [size, setSize] = useState({ width: 640, height: 340 });
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
-    const update = () => setWidth(Math.max(180, Math.floor(element.getBoundingClientRect().width)));
+    const update = () => {
+      const bounds = element.getBoundingClientRect();
+      const width = Math.max(180, Math.floor(bounds.width));
+      const height = fitToContainer ? Math.max(64, Math.floor(bounds.height)) : width < 420 ? 300 : 340;
+      setSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
+    };
     update();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
-  return { ref, width };
+  }, [fitToContainer]);
+  return { ref, ...size };
 }
 
 /** A windowed semantic table keeps the chart's accessible fallback useful at 50,000 rows. */
@@ -63,14 +68,13 @@ function colorFor(index: number, colors: string[]) {
   return override && /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(override) ? override : palette[index % palette.length];
 }
 
-export function ExploreChart({ kind, data, series: allSeries, title, horizontal = false, stacked = false, showLegend = true, colors = [], onMemberClick }: ExploreChartProps) {
-  const { ref, width } = useWidth();
+export function ExploreChart({ kind, data, series: allSeries, title, fitToContainer = false, horizontal = false, stacked = false, showLegend = true, colors = [], onMemberClick }: ExploreChartProps) {
+  const { ref, width, height } = useFrameSize(fitToContainer);
   const id = useId();
   const [hovered, setHovered] = useState<{ datum: ChartDatum; series?: ChartSeries } | null>(null);
   // A column shelf can expand 64 measures into thousands of series. Bound the
   // SVG independently of category count; the fallback still exposes all values.
   const series = useMemo(() => allSeries.slice(0, 12), [allSeries]);
-  const height = width < 420 ? 300 : 340;
   const points = useMemo(() => data.slice(0, kind === "donut" ? 50 : 200), [data, kind]);
   const summary = useMemo(() => {
     if (!data.length || !series.length) return "No values to display. Add a measure or change your filters.";
@@ -99,9 +103,9 @@ export function ExploreChart({ kind, data, series: allSeries, title, horizontal 
     className: styles.mark,
   });
 
-  const margin = { left: horizontal && kind === "bar" ? Math.min(118, width * 0.3) : width < 420 ? 52 : 68, top: 16, right: 16, bottom: 56 };
+  const margin = { left: horizontal && kind === "bar" ? Math.min(118, width * 0.3) : width < 420 ? 52 : 68, top: height < 160 ? 8 : 16, right: 16, bottom: height < 160 ? 30 : fitToContainer ? 44 : 56 };
   const plotRight = Math.max(margin.left + 20, width - margin.right);
-  const plotBottom = height - margin.bottom;
+  const plotBottom = Math.max(margin.top + 20, height - margin.bottom);
   const allValues = useMemo(() => {
     if (kind === "bar" && stacked) return points.flatMap((datum) => {
       let positive = 0, negative = 0;
@@ -115,7 +119,8 @@ export function ExploreChart({ kind, data, series: allSeries, title, horizontal 
   const tickDomain: [number, number] = [ticks[0], ticks[ticks.length - 1]];
   const scale = linearScale(tickDomain, horizontal && kind === "bar" ? [margin.left, plotRight] : [plotBottom, margin.top]);
   const bands = bandScale(points.length, horizontal && kind === "bar" ? margin.top : margin.left, horizontal && kind === "bar" ? plotBottom : plotRight);
-  const labelEvery = Math.max(1, Math.ceil(points.length / (horizontal && kind === "bar" ? 10 : width < 420 ? 4 : 7)));
+  const labelEvery = Math.max(1, Math.ceil(points.length / (horizontal && kind === "bar" ? Math.max(2, Math.floor((plotBottom - margin.top) / 24)) : width < 420 ? 4 : 7)));
+  const labelWidth = horizontal && kind === "bar" ? margin.left - 16 : Math.max(12, Math.abs(bands.step) * labelEvery - 8);
 
   const legend = kind === "donut"
     ? points.slice(0, 12).map((datum, index) => ({ key: datum.key, label: datum.label, color: colorFor(index, colors) }))
@@ -127,8 +132,8 @@ export function ExploreChart({ kind, data, series: allSeries, title, horizontal 
         ? <g key={tick}><line x1={scale(tick)} x2={scale(tick)} y1={margin.top} y2={plotBottom} /><text x={scale(tick)} y={plotBottom + 22} textAnchor="middle">{compactTick(tick)}</text></g>
         : <g key={tick}><line x1={margin.left} x2={plotRight} y1={scale(tick)} y2={scale(tick)} /><text x={margin.left - 10} y={scale(tick) + 4} textAnchor="end">{compactTick(tick)}</text></g>)}
       {points.map((datum, index) => index % labelEvery === 0 && (horizontal && kind === "bar"
-        ? <text key={datum.key} x={margin.left - 8} y={bands.center(index) + 4} textAnchor="end">{shortenLabel(datum.label || "—", width < 420 ? 11 : 17)}</text>
-        : <text key={datum.key} x={bands.center(index)} y={plotBottom + 22} textAnchor="middle">{shortenLabel(datum.label || "—", width < 420 ? 9 : 14)}</text>))}
+        ? <text key={datum.key} x={margin.left - 8} y={bands.center(index) + 4} textAnchor="end">{fitAxisLabel(datum.label || "—", labelWidth)}<title>{datum.label || "—"}</title></text>
+        : <text key={datum.key} x={bands.center(index)} y={plotBottom + 22} textAnchor="middle">{fitAxisLabel(datum.label || "—", labelWidth)}<title>{datum.label || "—"}</title></text>))}
     </g>
     {kind === "bar" ? points.map((datum, pointIndex) => {
       let positive = 0, negative = 0;
@@ -163,7 +168,7 @@ export function ExploreChart({ kind, data, series: allSeries, title, horizontal 
     const positive = points.map((datum) => Math.max(0, number(datum.values[item.key]) ?? 0));
     const total = positive.reduce((sum, value) => sum + value, 0);
     let angle = -Math.PI / 2;
-    const radius = Math.min(width / 2 - 20, 105);
+    const radius = Math.max(12, Math.min(width / 2 - 20, height / 2 - 24, 105));
     return <g transform={`translate(${width / 2},${height / 2 - 8})`}>
       {total > 0 ? points.map((datum, index) => {
         if (!positive[index]) return null;
@@ -194,7 +199,7 @@ export function ExploreChart({ kind, data, series: allSeries, title, horizontal 
   const kpiColumns = width < 440 ? 1 : Math.max(1, Math.min(3, Math.floor((width - 8) / 160)));
   const actualHeight = kind === "kpi" ? Math.max(120, Math.ceil(series.length / kpiColumns) * 110 + 16) : height;
 
-  return <section className={styles.chart} aria-label={`${title} visualization`}>
+  return <section className={`${styles.chart} ${fitToContainer ? styles.fitted : ""}`} data-chart-fit={fitToContainer || undefined} aria-label={`${title} visualization`}>
     <p className={styles.summary}>{summary}</p>
     <div ref={ref} className={styles.frame}>
       <svg data-explore-chart="true" className={styles.svg} viewBox={`0 0 ${width} ${actualHeight}`} width="100%" height={actualHeight} role="group" aria-roledescription="chart" aria-labelledby={`${id}-title ${id}-description`}>

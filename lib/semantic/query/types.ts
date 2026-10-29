@@ -33,6 +33,8 @@ export interface SemanticQuery {
   diagnostics?: boolean;
   /** Refresh without cache lookup/write or STATISTICS TIME overhead. */
   cache?: "default" | "bypass";
+  /** Report queries have a separately bounded 100,000-row export budget. */
+  report?: boolean;
 }
 export interface QueryResultColumn {
   key: string;

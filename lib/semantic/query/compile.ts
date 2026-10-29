@@ -15,7 +15,7 @@ import type {
   QueryResultColumn,
   QueryValue,
 } from "./types";
-import { normalizeQuery } from "./schema";
+import { normalizeQuery, queryFilterSchema } from "./schema";
 import { MaterializedPlan, materializedBatch } from "./materialize";
 import { simpleAggregateValues } from "./simple";
 import { withQueryPlanHints } from "./hints";
@@ -527,7 +527,7 @@ export function compileQuery(
   }
 }
 
-export interface DistinctValuesOptions { search?: string; limit?: number }
+export interface DistinctValuesOptions { search?: string; limit?: number; filters?: QueryFilter[] }
 
 export function compileDistinctValues(
   model: SemanticModel,
@@ -543,10 +543,12 @@ export function compileDistinctValues(
     throw new QueryCompileError("Search must contain at most 200 characters.");
   const builder = new SqlBuilder(model, hideUnknown);
   builder.addColumn(resolved);
+  const filters: BoundFilter[] = queryFilterSchema.array().max(64).parse(options.filters ?? []).map((filter) => ({ ...filter, resolved: resolveAttribute(model, filter.attribute, true) }));
+  filters.forEach((filter) => builder.addColumn(filter.resolved));
   builder.prepare();
   const { from, unknown } = builder.from();
   const column = builder.column(resolved);
-  const predicates = [...unknown];
+  const predicates = [...unknown, ...filters.map((filter) => builder.filter(filter))];
   if (options.search) {
     const escaped = options.search.replace(/[~%_\[]/g, (character) => `~${character}`);
     const pattern = builder.param(`%${escaped}%`, "string");
@@ -554,6 +556,7 @@ export function compileDistinctValues(
     predicates.push(`${value} LIKE ${pattern} ESCAPE N'~'`);
   }
   builder.params.push({ name: "__df_limit", value: limit + 1, type: "number" });
+  if (builder.params.length > 2_000) throw new QueryCompileError("The values query uses too many filter values.");
   const sql = withQueryPlanHints(`SELECT TOP (@__df_limit) ${column} AS [value], COUNT_BIG(*) AS [count]\nFROM ${from}${predicates.length ? `\nWHERE ${predicates.join(" AND ")}` : ""}\nGROUP BY ${column}\nORDER BY [count] DESC, [value] ASC;`);
   return {
     sql,

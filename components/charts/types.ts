@@ -17,6 +17,8 @@ export interface ExploreChartProps {
   data: ChartDatum[];
   series: ChartSeries[];
   title: string;
+  /** Fill a dashboard tile instead of using the Explore canvas height. */
+  fitToContainer?: boolean;
   horizontal?: boolean;
   stacked?: boolean;
   showLegend?: boolean;

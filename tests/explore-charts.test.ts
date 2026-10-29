@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ExploreChart } from "@/components/charts/explore-chart";
-import { bandScale, compactTick, donutArc, finiteValues, lineSegments, linearScale, niceTicks, numericDomain, shortenLabel } from "@/components/charts/scales";
+import { bandScale, compactTick, donutArc, finiteValues, lineSegments, linearScale, niceTicks, numericDomain, shortenLabel, fitAxisLabel } from "@/components/charts/scales";
 
 describe("Explore SVG scales", () => {
   it("generates readable, bounded ticks spanning positive, negative and decimal domains", () => {
@@ -63,6 +63,13 @@ describe("Explore SVG scales", () => {
     expect(shortenLabel("Furniture and office supplies", 12)).toBe("Furniture a…");
     expect(shortenLabel("2022")).toBe("2022");
   });
+  it("fits axis labels to available width without splitting Unicode characters", () => {
+    expect(fitAxisLabel("Office Supplies", 62)).toBe("Office Su…");
+    expect(fitAxisLabel("Consumer", 100)).toBe("Consumer");
+    expect(fitAxisLabel("2024", 28)).toBe("2024");
+    expect(fitAxisLabel("Furniture", 0)).toBe("…");
+    expect(fitAxisLabel("📦📦📦📦📦📦", 25)).toBe("📦📦📦…");
+  });
   it("breaks line and area paths at nulls instead of fabricating observations", () => {
     const a = { x: 1, y: 2 }, b = { x: 3, y: 4 }, c = { x: 8, y: 9 };
     expect(lineSegments([null, a, b, null, { x: NaN, y: 2 }, c, null])).toEqual([[a, b], [c]]);
@@ -101,6 +108,24 @@ describe("Explore SVG chart accessibility and bounded rendering", () => {
       expect(html).not.toMatch(/NaN|Infinity/);
     });
   }
+  it("truncates long bar axis labels and exposes complete labels in native SVG tooltips", () => {
+    const label = "Furniture and office supplies with a very long category description";
+    for (const horizontal of [false, true]) {
+      const html = renderToStaticMarkup(createElement(ExploreChart, { kind: "bar", data: [{ key: "long", label, values: { sales: 10 } }, ...data], series: [series[0]], title: "Long categories", horizontal }));
+      const axis = html.match(/<text[^>]*>[^<]*…<title>[^<]+<\/title><\/text>/g) ?? [];
+      expect(axis.length).toBeGreaterThan(0);
+      expect(axis.some((text) => text.includes(`<title>${label}</title>`))).toBe(true);
+      expect(html).toContain(`aria-label="${label}, Sales: 10"`);
+    }
+  });
+  it("opts dashboard charts into a container-sized frame while preserving accessible data", () => {
+    const fitted = renderToStaticMarkup(createElement(ExploreChart, { kind: "line", data, series, title: "Dashboard sales", fitToContainer: true }));
+    expect(fitted).toContain('data-chart-fit="true"');
+    expect(fitted).toContain("View accessible data table");
+    expect(fitted).toContain("3 categories and 2 measures");
+    const normal = renderToStaticMarkup(createElement(ExploreChart, { kind: "line", data, series, title: "Explore sales" }));
+    expect(normal).not.toContain("data-chart-fit");
+  });
   it("caps marks without silently discarding the full table", () => {
     const big = Array.from({ length: 50_000 }, (_, index) => ({ key: String(index), label: `Product ${index}`, values: { sales: index } }));
     const html = renderToStaticMarkup(createElement(ExploreChart, { kind: "bar", data: big, series: [series[0]], title: "All products" }));

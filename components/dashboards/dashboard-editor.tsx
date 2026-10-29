@@ -71,7 +71,7 @@ function TileFrame({ tile, editing, selected, children, footer, register, onSele
   const style = { gridColumn: `${tile.x + 1} / span ${tile.w}`, gridRow: `${tile.y + 1} / span ${tile.h}`, transform: transform ? `translate3d(${transform.x}px,${transform.y}px,0)` : undefined, zIndex: isDragging ? 20 : undefined, "--mobile-tile-height": `${Math.max(tile.type === "chart" ? 340 : tile.type === "kpi" ? 230 : 180, tile.h * (ROW_HEIGHT + GRID_GAP) - GRID_GAP)}px` } as CSSProperties;
   return <article ref={attach} data-tile-id={tile.id} data-tile-type={tile.type} data-grid-x={tile.x} data-grid-y={tile.y} data-grid-w={tile.w} data-grid-h={tile.h} style={style} className={`${styles.tile} ${selected ? styles.selectedTile : ""} ${isDragging ? styles.draggingTile : ""}`} aria-label={`${tile.title || tile.type} tile`}>
     <div className={styles.tileHeading}>{editing && <button type="button" {...attributes} {...listeners} className={styles.dragHandle} aria-label={`Move ${tile.title || tile.type} tile`} aria-describedby="dashboard-keyboard-help" onKeyDown={onKeyboard}><GripVertical size={14} aria-hidden="true" /></button>}<div><h2>{tile.title || (tile.type === "text" ? "Note" : tile.type === "slicer" ? "Filter" : "Untitled tile")}</h2>{tile.subtitle && <p>{tile.subtitle}</p>}</div>{editing && <div className={styles.tileControls}><button type="button" aria-label={`Settings for ${tile.title || tile.type}`} onClick={onSelect}><Settings2 size={13} aria-hidden="true" /></button><button type="button" aria-label={`Remove ${tile.title || tile.type} tile`} onClick={onRemove}><X size={13} aria-hidden="true" /></button></div>}</div>
-    <div className={styles.tileBody}>{children}</div><div className={styles.tileFooter}>{footer}</div>
+    <div className={styles.tileBody} role="region" aria-label={`${tile.title || tile.type} tile content`} tabIndex={0}>{children}</div><div className={styles.tileFooter}>{footer}</div>
     {editing && <button type="button" className={styles.resizeHandle} aria-label={`Resize ${tile.title || tile.type} tile`} aria-describedby="dashboard-keyboard-help" onPointerDown={onResizeStart} onPointerMove={onResizeMove} onPointerUp={(event) => onResizeEnd(event)} onPointerCancel={(event) => onResizeEnd(event, true)} onKeyDown={(event) => { if (event.key.startsWith("Arrow")) onKeyboard(event, true); }}><Maximize2 size={12} aria-hidden="true" /></button>}
   </article>;
 }
@@ -201,6 +201,7 @@ function DashboardCanvas({ projectId, initial, model, views, lastSuccessfulRunId
     if (state?.status === "error") return true;
     if (state?.status !== "success") return false;
     if (state.modelVersion !== model.version || state.lastSuccessfulRunId !== lastSuccessfulRunId || state.refreshToken !== refreshToken) return false;
+    if (tile.type === "kpi" && (state.kpi?.selection ?? "all") !== (tile.period ?? "all")) return false;
     const view = resolveTileView(tile, views);
     if (!view) return false;
     const config = { ...view, filters: mergeDashboardFilters(view.filters, applicableFilters(tile, model, doc.filters.items, views)), options: { ...view.options, title: tile.title || view.options.title, numberFormat: tile.numberFormat, showLegend: tile.showLegend } };

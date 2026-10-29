@@ -88,13 +88,13 @@ export function DashboardTileContent({ projectId, tile, model, views, state, fil
   const config = state.config ?? { ...resolved, options: { ...resolved.options, title: tile.title || resolved.options.title, numberFormat: tile.numberFormat, showLegend: tile.showLegend } };
   const previous = !!state.result && state.status !== "success";
   const tableResult = config.viz === "table" || config.viz === "pivot";
-  const displayedKpi = tile.type === "kpi" ? { ...tile, measure: config.values[0] ?? tile.measure, comparisonMeasure: config.values[1], numberFormat: config.options.numberFormat } : null;
+  const displayedKpi = tile.type === "kpi" ? { ...tile, measure: config.values[0] ?? tile.measure, comparisonMeasure: state.kpi?.comparison?.measure, numberFormat: config.options.numberFormat } : null;
   return <div className={styles.content}>
     {state.error && <div className={styles.failure} role="alert"><strong>This tile couldn’t load.</strong><p>{state.error}</p><Button size="sm" variant="outline" onClick={onRetry}><RefreshCw size={12} aria-hidden="true" />Retry tile</Button></div>}
     {state.totalsError && <p className={styles.slicerNote} role="status">{state.totalsError}</p>}
     {busy && state.elapsedMs >= 3000 && <div className={styles.waiting} role="status"><Loader2 size={13} className={styles.spin} aria-hidden="true" /><span>Waiting for the database… · {(state.elapsedMs / 1000).toFixed(1)} s</span>{onCancel && <Button size="sm" variant="ghost" onClick={onCancel}>Cancel tile</Button>}</div>}
     {previous && <p className={styles.previous} role="status">Previous result{busy ? " · updating…" : " · retry to update this tile."}</p>}
-    {state.result ? displayedKpi ? <KpiValue tile={displayedKpi} model={model} result={state.result} muted={busy} previous={previous} /> : <div className={`${styles.chart} ${tableResult ? styles.tableChart : ""}`}><div className={styles.interactiveResult}><ExploreResults config={config} resultConfig={config} model={model} result={state.result} totals={state.totals} loading={busy} onMemberClick={state.status === "success" ? onMemberClick : undefined} /></div>{tableResult && <DashboardPrintTable result={state.result} config={config} model={model} previous={previous} />}</div> : pending ? <div className={styles.skeleton} role="status" aria-label={`Loading ${tile.title || "dashboard tile"}`}><span /><span /><span /><p>{state.status === "idle" ? "Ready when this tile is visible." : state.status === "queued" ? "Queued for the database…" : "Loading tile…"}</p></div> : !state.error && <div className={styles.placeholder}><p>No result is available yet.</p><Button size="sm" variant="outline" onClick={onRetry}>Load tile</Button></div>}
+    {state.result ? displayedKpi ? <KpiValue tile={displayedKpi} model={model} result={state.result} kpi={state.kpi} muted={busy} previous={previous} /> : <div className={`${styles.chart} ${tableResult ? styles.tableChart : ""}`}><div className={styles.interactiveResult}><ExploreResults config={config} resultConfig={config} model={model} result={state.result} totals={state.totals} loading={busy} fitToContainer={!tableResult} onMemberClick={state.status === "success" ? onMemberClick : undefined} /></div>{tableResult && <DashboardPrintTable result={state.result} config={config} model={model} previous={previous} />}</div> : pending ? <div className={styles.skeleton} role="status" aria-label={`Loading ${tile.title || "dashboard tile"}`}><span /><span /><span /><p>{state.status === "idle" ? "Ready when this tile is visible." : state.status === "queued" ? "Queued for the database…" : "Loading tile…"}</p></div> : !state.error && <div className={styles.placeholder}><p>No result is available yet.</p><Button size="sm" variant="outline" onClick={onRetry}>Load tile</Button></div>}
   </div>;
 }
 
@@ -114,22 +114,28 @@ export function DashboardPrintTable({ result, config, model, previous = false }:
   </table></div>;
 }
 
-function KpiValue({ tile, model, result, muted, previous }: { tile: Extract<DashboardTile, { type: "kpi" }>; model: SemanticModel; result: QueryResult; muted: boolean; previous: boolean }) {
+function KpiValue({ tile, model, result, kpi, muted, previous }: { tile: Extract<DashboardTile, { type: "kpi" }>; model: SemanticModel; result: QueryResult; kpi?: DashboardTileQueryState["kpi"]; muted: boolean; previous: boolean }) {
   const measure = model.measures.find((entry) => entry.id === tile.measure || entry.name === tile.measure);
-  const comparison = model.measures.find((entry) => entry.id === tile.comparisonMeasure || entry.name === tile.comparisonMeasure);
+  // Comparison data belongs to a separately bounded period, never to the
+  // ungrouped all-time main result. Keep it paired with its original context.
+  const comparedContext = model.date ? kpi?.comparison : undefined;
+  const comparison = comparedContext ? model.measures.find((entry) => entry.id === comparedContext.measure || entry.name === comparedContext.measure) : undefined;
   const columns = result.columns.filter((column) => column.role === "measure");
   const main = columns.find((column) => column.name === measure?.name) ?? columns[0];
-  const secondary = comparison ? columns.find((column) => column.name === comparison.name) : undefined;
+  const comparedColumns = comparedContext?.result.columns.filter((column) => column.role === "measure") ?? [];
+  const secondary = comparison ? comparedColumns.find((column) => column.name === comparison.name) ?? comparedColumns[0] : undefined;
   const record = result.rows[0];
   const value = main ? record?.[main.key] : null;
-  const compared = secondary ? record?.[secondary.key] : null;
-  const positive = typeof compared === "number" && compared > 0;
-  const negative = typeof compared === "number" && compared < 0;
+  const compared = secondary ? comparedContext?.result.rows[0]?.[secondary.key] : null;
+  const comparedNumber = typeof compared === "number" ? compared : typeof compared === "string" && compared.trim() !== "" ? Number(compared) : null;
+  const positive = comparedNumber !== null && Number.isFinite(comparedNumber) && comparedNumber > 0;
+  const negative = comparedNumber !== null && Number.isFinite(comparedNumber) && comparedNumber < 0;
   return <div className={`${styles.kpi} ${muted ? styles.mutedKpi : ""}`}>
     <p className={styles.kpiLabel}>{measure?.name ?? tile.measure}</p>
     <div className={styles.kpiValue}>{formatMeasure(value, tile.numberFormat === "auto" ? measure?.format ?? "number" : tile.numberFormat)}</div>
-    {comparison && <p className={`${styles.comparison} ${positive ? styles.positive : negative ? styles.negative : ""}`}>{positive ? <ArrowUpRight size={15} aria-hidden="true" /> : negative ? <ArrowDownRight size={15} aria-hidden="true" /> : null}<strong>{formatMeasure(compared, comparison.format)}</strong><span>{comparison.name}</span></p>}
-    <p className={styles.kpiContext}>{previous ? "Previous query context" : result.rowCount ? "Current dashboard filter context" : "No data matches the current filters"}</p>
+    {comparison && comparedContext && <p className={`${styles.comparison} ${positive ? styles.positive : negative ? styles.negative : ""}`}>{positive ? <ArrowUpRight size={15} aria-hidden="true" /> : negative ? <ArrowDownRight size={15} aria-hidden="true" /> : null}<span>{comparedContext.label}</span><strong>{positive ? "+" : ""}{formatMeasure(compared, comparison.format)}</strong><span>{comparison.name}</span></p>}
+    {model.date && kpi?.comparisonUnavailable && <p className={styles.kpiContext}>{kpi.comparisonUnavailable}</p>}
+    <p className={styles.kpiContext}>{previous ? "Previous query context" : result.rowCount ? `${kpi?.periodLabel ?? "All time"} · Current dashboard filter context` : "No data matches the current filters"}</p>
   </div>;
 }
 
