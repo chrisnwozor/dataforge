@@ -1,7 +1,7 @@
 import { HttpError } from "./http";
 
 export const QUERY_SCHEDULE_TIMEOUT_MS = 30_000;
-export const QUERY_PRIORITIES = { main: 0, totals: 1, values: 2, dashboard: 2.5, prefetch: 3, report: 4, reportScheduled: 5 } as const;
+export const QUERY_PRIORITIES = { main: 0, totals: 1, values: 2, dashboard: 2.5, prefetch: 3, report: 4, reportScheduled: 5, checks: 6 } as const;
 export type QueryPriority = keyof typeof QUERY_PRIORITIES;
 
 export class QueryScheduleTimeoutError extends HttpError {

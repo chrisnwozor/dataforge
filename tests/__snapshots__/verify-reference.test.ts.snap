@@ -1,0 +1,141 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`independent reference SQL > snapshots a direct aggregate with physical names and typed limit 1`] = `
+{
+  "params": [
+    {
+      "name": "__df_limit",
+      "type": "number",
+      "value": 50001,
+    },
+  ],
+  "sql": "SELECT TOP (@__df_limit) [r0].[value] AS [v0]
+FROM (
+SELECT 1 AS [one]
+) AS [anchor]
+LEFT JOIN (
+SELECT SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [value]
+FROM [dw].[fact_sales] AS [f]
+) AS [r0] ON 1 = 1;",
+}
+`;
+
+exports[`independent reference SQL > snapshots grouped ratios, ALL denominators and parameterized CALCULATE 1`] = `
+{
+  "params": [
+    {
+      "name": "vr0",
+      "type": "string",
+      "value": "Furniture",
+    },
+    {
+      "name": "__df_limit",
+      "type": "number",
+      "value": 50001,
+    },
+  ],
+  "sql": "SELECT TOP (@__df_limit) [anchor].[g0] AS [g0], (CASE WHEN [r1].[value] IS NULL OR [r1].[value] = 0 THEN NULL ELSE 1.0 * [r0].[value] / NULLIF([r1].[value], 0) END) AS [v0], (CASE WHEN [r2].[value] IS NULL OR [r2].[value] = 0 THEN NULL ELSE 1.0 * [r1].[value] / NULLIF([r2].[value], 0) END) AS [v1], [r3].[value] AS [v2]
+FROM (
+SELECT DISTINCT [d0].[category] AS [g0]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+) AS [anchor]
+LEFT JOIN (
+SELECT [d0].[category] AS [g0], SUM(CONVERT(decimal(38, 10), [f].[profit])) AS [value]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+GROUP BY [d0].[category]
+) AS [r0] ON ((CASE WHEN [anchor].[g0] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r0].[g0] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g0], N'') = COALESCE([r0].[g0], N''))
+LEFT JOIN (
+SELECT [d0].[category] AS [g0], SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [value]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+GROUP BY [d0].[category]
+) AS [r1] ON ((CASE WHEN [anchor].[g0] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r1].[g0] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g0], N'') = COALESCE([r1].[g0], N''))
+LEFT JOIN (
+SELECT SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [value]
+FROM [dw].[fact_sales] AS [f]
+) AS [r2] ON 1 = 1
+LEFT JOIN (
+SELECT SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [value]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_product] AS [d0] ON [f].[product_key] = [d0].[product_key]
+WHERE ([d0].[category] = @vr0)
+) AS [r3] ON 1 = 1;",
+}
+`;
+
+exports[`independent reference SQL > snapshots independent window-based year/month and prior-year references 1`] = `
+"SELECT TOP (@__df_limit) [anchor].[g0] AS [g0], [anchor].[g1] AS [g1], [r0].[value] AS [v0], [r1].[value] AS [v1], [r2].[value] AS [v2], [r3].[value] AS [v3], (CASE WHEN [r3].[value] IS NULL OR [r3].[value] = 0 THEN NULL ELSE 1.0 * ([r4].[value] - [r3].[value]) / NULLIF([r3].[value], 0) END) AS [v4]
+FROM (
+SELECT DISTINCT [d1].[Year] AS [g0], [d1].[Month] AS [g1]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+) AS [anchor]
+LEFT JOIN (
+SELECT DISTINCT [p].[g0], [p].[g1], SUM([days].[amount]) OVER (PARTITION BY [p].[g0], [p].[g1]) AS [value]
+FROM (
+SELECT [d1].[Year] AS [g0], [d1].[Month] AS [g1], DATEFROMPARTS([d1].[Year], [d1].[Month], 1) AS [start_date], DATEADD(DAY, -1, DATEADD(MONTH, 1, DATEFROMPARTS([d1].[Year], [d1].[Month], 1))) AS [end_date]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY [d1].[Year], [d1].[Month]
+) AS [p]
+LEFT JOIN (
+SELECT CONVERT(date, [d1].[Date]) AS [day], SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [amount]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY CONVERT(date, [d1].[Date])
+) AS [days] ON ([days].[day] BETWEEN DATEFROMPARTS(YEAR([p].[end_date]), 1, 1) AND [p].[end_date])
+) AS [r0] ON ((CASE WHEN [anchor].[g0] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r0].[g0] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g0], 0) = COALESCE([r0].[g0], 0)) AND ((CASE WHEN [anchor].[g1] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r0].[g1] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g1], 0) = COALESCE([r0].[g1], 0))
+LEFT JOIN (
+SELECT DISTINCT [p].[g0], [p].[g1], SUM([days].[amount]) OVER (PARTITION BY [p].[g0], [p].[g1]) AS [value]
+FROM (
+SELECT [d1].[Year] AS [g0], [d1].[Month] AS [g1], DATEFROMPARTS([d1].[Year], [d1].[Month], 1) AS [start_date], DATEADD(DAY, -1, DATEADD(MONTH, 1, DATEFROMPARTS([d1].[Year], [d1].[Month], 1))) AS [end_date]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY [d1].[Year], [d1].[Month]
+) AS [p]
+LEFT JOIN (
+SELECT CONVERT(date, [d1].[Date]) AS [day], SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [amount]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY CONVERT(date, [d1].[Date])
+) AS [days] ON ([days].[day] BETWEEN DATEFROMPARTS(YEAR([p].[end_date]), MONTH([p].[end_date]), 1) AND [p].[end_date])
+) AS [r1] ON ((CASE WHEN [anchor].[g0] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r1].[g0] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g0], 0) = COALESCE([r1].[g0], 0)) AND ((CASE WHEN [anchor].[g1] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r1].[g1] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g1], 0) = COALESCE([r1].[g1], 0))
+LEFT JOIN (
+SELECT DISTINCT [p].[g0], [p].[g1], SUM([days].[amount]) OVER (PARTITION BY [p].[g0], [p].[g1]) AS [value]
+FROM (
+SELECT [d1].[Year] AS [g0], [d1].[Month] AS [g1], DATEFROMPARTS([d1].[Year], [d1].[Month], 1) AS [start_date], DATEADD(DAY, -1, DATEADD(MONTH, 1, DATEFROMPARTS([d1].[Year], [d1].[Month], 1))) AS [end_date]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY [d1].[Year], [d1].[Month]
+) AS [p]
+LEFT JOIN (
+SELECT CONVERT(date, [d1].[Date]) AS [day], SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [amount]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY CONVERT(date, [d1].[Date])
+) AS [days] ON ([days].[day] BETWEEN DATEFROMPARTS(YEAR([p].[end_date]), ((MONTH([p].[end_date]) - 1) / 3) * 3 + 1, 1) AND [p].[end_date])
+) AS [r2] ON ((CASE WHEN [anchor].[g0] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r2].[g0] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g0], 0) = COALESCE([r2].[g0], 0)) AND ((CASE WHEN [anchor].[g1] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r2].[g1] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g1], 0) = COALESCE([r2].[g1], 0))
+LEFT JOIN (
+SELECT DISTINCT [p].[g0], [p].[g1], SUM([days].[amount]) OVER (PARTITION BY [p].[g0], [p].[g1]) AS [value]
+FROM (
+SELECT [d1].[Year] AS [g0], [d1].[Month] AS [g1], DATEFROMPARTS([d1].[Year], [d1].[Month], 1) AS [start_date], DATEADD(DAY, -1, DATEADD(MONTH, 1, DATEFROMPARTS([d1].[Year], [d1].[Month], 1))) AS [end_date]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY [d1].[Year], [d1].[Month]
+) AS [p]
+LEFT JOIN (
+SELECT CONVERT(date, [d1].[Date]) AS [day], SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [amount]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY CONVERT(date, [d1].[Date])
+) AS [days] ON ([days].[day] BETWEEN DATEADD(YEAR, -1, [p].[start_date]) AND DATEADD(YEAR, -1, [p].[end_date]))
+) AS [r3] ON ((CASE WHEN [anchor].[g0] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r3].[g0] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g0], 0) = COALESCE([r3].[g0], 0)) AND ((CASE WHEN [anchor].[g1] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r3].[g1] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g1], 0) = COALESCE([r3].[g1], 0))
+LEFT JOIN (
+SELECT [d1].[Year] AS [g0], [d1].[Month] AS [g1], SUM(CONVERT(decimal(38, 10), [f].[sales])) AS [value]
+FROM [dw].[fact_sales] AS [f]
+LEFT JOIN [dw].[dim_date] AS [d1] ON [f].[DateKey] = [d1].[DateKey]
+GROUP BY [d1].[Year], [d1].[Month]
+) AS [r4] ON ((CASE WHEN [anchor].[g0] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r4].[g0] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g0], 0) = COALESCE([r4].[g0], 0)) AND ((CASE WHEN [anchor].[g1] IS NULL THEN 1 ELSE 0 END) = (CASE WHEN [r4].[g1] IS NULL THEN 1 ELSE 0 END) AND COALESCE([anchor].[g1], 0) = COALESCE([r4].[g1], 0));"
+`;

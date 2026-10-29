@@ -14,6 +14,7 @@ import {
   FileBarChart2,
   Files,
   GitBranch,
+  ShieldCheck,
 } from "lucide-react";
 const tabs = [
   { label: "Overview", path: "", Icon: LayoutDashboard },
@@ -27,6 +28,7 @@ const tabs = [
   { label: "Reports", path: "/reports", Icon: FileBarChart2 },
   { label: "Generate", path: "/generate", Icon: Terminal },
   { label: "Runs", path: "/runs", Icon: History },
+  { label: "Checks", path: "/checks", Icon: ShieldCheck },
 ];
 export function ProjectTabs({ id }: { id: string }) {
   const pathname = usePathname();

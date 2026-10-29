@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { toSemanticQuery, type ViewConfig } from "@/lib/explore/config";
+import { type ViewConfig } from "@/lib/explore/config";
 import type { QueryResult, QueryTimings, SemanticQuery } from "@/lib/semantic/query/types";
+import { buildExploreRequests, type ExploreTotals } from "@/lib/explore/requests";
+export { buildExploreRequests, type ExploreTotals, type ExploreRequestPlan } from "@/lib/explore/requests";
 import type { SqlParameter } from "@/lib/semantic/types";
 
-export interface ExploreTotals {
-  rows?: QueryResult;
-  columns?: QueryResult;
-  grand?: QueryResult;
-}
 export interface ExploreQueryError {
   message: string;
   status?: number;
@@ -29,30 +26,6 @@ export interface ExploreQueryState {
   totalsError: string | null;
 }
 
-export interface ExploreRequestPlan {
-  query: SemanticQuery;
-  totals: { key: keyof ExploreTotals; query: SemanticQuery }[];
-}
-
-/** Totals are their own semantic queries: ratios, DISTINCTCOUNT and AVG cannot be added. */
-export function buildExploreRequests(config: ViewConfig): ExploreRequestPlan {
-  const query = toSemanticQuery(config);
-  // A KPI is a value in the full filter context, never an arbitrary first grouped row.
-  if (config.viz === "kpi") {
-    query.rows = [];
-    query.columns = [];
-    query.orderBy = [];
-    query.topN = undefined;
-  }
-  if (!config.options.showTotals || config.viz !== "pivot") return { query, totals: [] };
-  const base = { ...query, topN: undefined, orderBy: [] };
-  const totals: ExploreRequestPlan["totals"] = [
-    { key: "rows", query: { ...base, rows: config.rows, columns: [] } },
-    { key: "columns", query: { ...base, rows: [], columns: config.columns } },
-    { key: "grand", query: { ...base, rows: [], columns: [] } },
-  ];
-  return { query, totals };
-}
 
 const initialState: ExploreQueryState = {
   result: null, resultConfig: null, totals: {}, loading: false, slow: false, waiting: false, elapsedMs: 0,
