@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { z } from "zod";
 import { generationOptionsSchema } from "@/lib/server/generation";
 import { errorResponse, HttpError } from "@/lib/server/http";
@@ -17,7 +18,7 @@ const startOptionsSchema = generationOptionsSchema
   })
   .strict();
 
-export async function GET(
+async function handleGET(
   _request: Request,
   context: ProjectRunsContext,
 ): Promise<Response> {
@@ -32,7 +33,7 @@ export async function GET(
   }
 }
 
-export async function POST(
+async function handlePOST(
   request: Request,
   context: ProjectRunsContext,
 ): Promise<Response> {
@@ -64,3 +65,6 @@ export async function POST(
     return errorResponse(error, "The run could not be started. Try again.");
   }
 }
+
+export const GET = withProjectRoute("editor", handleGET);
+export const POST = withProjectRoute("editor", handlePOST);

@@ -1,3 +1,5 @@
+import { requireProjectAccess } from "@/lib/auth/context";
+import { withProjectPage } from "@/lib/auth/guards";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -25,12 +27,13 @@ import { number } from "@/lib/utils";
 import { readPublicConnection } from "@/lib/server/connection";
 import { readPipeline } from "@/lib/server/prepare-storage";
 export const metadata = { title: "Project overview" };
-export default async function Overview({
+async function Overview({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const editable = requireProjectAccess(id).role !== "viewer";
   const [project, activity] = await Promise.all([
     getProject(id),
     getActivity(id),
@@ -62,10 +65,10 @@ export default async function Overview({
           <>
             <StatusBadge status={project.status} />
             <Link
-              href={`/projects/${id}/${next}`}
+              href={`/projects/${id}/${editable ? next : "explore"}`}
               className={buttonVariants({ variant: "outline" })}
             >
-              Open {next}
+              Open {editable ? next : "explore"}
               <ArrowRight size={14} />
             </Link>
           </>
@@ -103,7 +106,7 @@ export default async function Overview({
           icon={<CircleDashed size={14} />}
         />
       </div>
-      <section className="panel">
+      {editable && <section className="panel">
         <div className="panel-header">
           <h2>Your data pipeline</h2>
           <span className="small muted">
@@ -122,19 +125,19 @@ export default async function Overview({
         <div className="panel-body">
           <PreparationStepper projectId={id} stage={project.stage} />
         </div>
-      </section>
-      <PrepareQuality projectId={id} />
+      </section>}
+      {editable && <PrepareQuality projectId={id} />}
       <div className="overview-grid">
         <section className="panel">
           <div className="panel-header">
             <h2>Recent activity</h2>
-            <Link
+            {editable && <Link
               href={`/projects/${id}/runs`}
               className="small muted"
               style={{ display: "flex", alignItems: "center", gap: 5 }}
             >
               View runs <ArrowRight size={12} />
-            </Link>
+            </Link>}
           </div>
           <div
             className="panel-body"
@@ -212,3 +215,5 @@ export default async function Overview({
     </main>
   );
 }
+
+export default withProjectPage("viewer", Overview);

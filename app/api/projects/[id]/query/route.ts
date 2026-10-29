@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { boundedBody, HttpError } from "@/lib/server/http";
 import {
   addQueryPhase,
@@ -15,7 +16,7 @@ import { resultToCsv } from "@/lib/explore/csv";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(
+async function handlePOST(
   request: Request,
   context: ProjectModelContext,
 ): Promise<Response> {
@@ -83,3 +84,5 @@ export async function POST(
     );
   }
 }
+
+export const POST = withProjectRoute("viewer", handlePOST);

@@ -1,9 +1,10 @@
+import { withWorkspacePage } from "@/lib/auth/guards";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/shared";
 import { NewProjectForm } from "@/components/new-project-form";
 export const metadata = { title: "New project" };
-export default function NewProjectPage() {
+function NewProjectPage() {
   return (
     <main className="wizard-container">
       <Link href="/projects" className="back-link">
@@ -19,3 +20,5 @@ export default function NewProjectPage() {
     </main>
   );
 }
+
+export default withWorkspacePage("editor", NewProjectPage);

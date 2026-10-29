@@ -1,3 +1,4 @@
+import { AccountNav } from "./auth/account-nav";
 import { IntentLink as Link } from "./intent-link";
 import { Command, Layers2, ArrowUpRight } from "lucide-react";
 import { WorkspaceSwitcher } from "./project-switcher";
@@ -33,9 +34,7 @@ export function Navbar() {
         </a>
         <span className="nav-divider" />
         <ThemeToggle />
-        <Link href="/settings" className="avatar" aria-label="Account settings">
-          A
-        </Link>
+        <AccountNav />
       </div>
     </header>
   );

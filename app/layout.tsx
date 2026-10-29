@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { AuthProvider } from "@/components/auth/provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navbar, Footer } from "@/components/navbar";
 import "./globals.css";
@@ -34,9 +35,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${GeistSans.variable} ${GeistMono.variable}`}>
         <ThemeProvider>
+          <AuthProvider>
           <Navbar />
           {children}
           <Footer />
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

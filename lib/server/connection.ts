@@ -1,11 +1,12 @@
+import { auditEvent } from "@/lib/auth/audit";
+import { currentWorkspaceId } from "@/lib/auth/context";
+import {
+  encryptWorkspacePassword,
+  decryptWorkspacePassword,
+} from "@/lib/auth/workspace-secrets";
 import type { config as MssqlConfig } from "mssql";
 import { z } from "zod";
-import {
-  decryptPassword,
-  encryptPassword,
-  redactSecrets,
-  secretKey,
-} from "@/lib/runner/secrets";
+import { redactSecrets, secretKey } from "@/lib/runner/secrets";
 import { getDatabase } from "./db";
 import { boundedBody, HttpError } from "./http";
 
@@ -73,9 +74,10 @@ function readConnectionRow(): ConnectionRow | undefined {
         password_encrypted AS passwordEncrypted, encrypt,
         trust_server_certificate AS trustServerCertificate,
         staging_folder AS stagingFolder, updated_at AS updatedAt
-      FROM connection_settings WHERE id = 1`,
+      FROM connection_settings WHERE workspace_id = ?`,
     )
-    .get() as (ConnectionRow & Record<string, string | number>) | undefined;
+    .get(currentWorkspaceId()) as
+    (ConnectionRow & Record<string, string | number>) | undefined;
 }
 
 function rowFields(
@@ -101,7 +103,7 @@ export function readPublicConnection(): PublicConnection {
     secretKey();
     secretConfigured = true;
     if (row) {
-      decryptPassword(row.passwordEncrypted);
+      decryptWorkspacePassword(row.passwordEncrypted, currentWorkspaceId());
       decryptable = true;
     }
   } catch (error) {
@@ -140,7 +142,10 @@ export function getConnectionSettings(): SqlConnectionSettings {
   try {
     return {
       ...rowFields(row),
-      password: decryptPassword(row.passwordEncrypted),
+      password: decryptWorkspacePassword(
+        row.passwordEncrypted,
+        currentWorkspaceId(),
+      ),
     };
   } catch (error) {
     throw new HttpError(
@@ -170,10 +175,19 @@ export function saveConnection(value: unknown): PublicConnection {
   let passwordEncrypted: string;
   try {
     secretKey();
-    if (fields.password) passwordEncrypted = encryptPassword(fields.password);
+    if (fields.password)
+      passwordEncrypted = encryptWorkspacePassword(
+        fields.password,
+        currentWorkspaceId("admin"),
+      );
     else if (previous) {
-      decryptPassword(previous.passwordEncrypted);
-      passwordEncrypted = previous.passwordEncrypted;
+      passwordEncrypted = encryptWorkspacePassword(
+        decryptWorkspacePassword(
+          previous.passwordEncrypted,
+          currentWorkspaceId("admin"),
+        ),
+        currentWorkspaceId("admin"),
+      );
     } else
       throw new HttpError(
         400,
@@ -190,16 +204,17 @@ export function saveConnection(value: unknown): PublicConnection {
   }
   getDatabase()
     .prepare(
-      `INSERT INTO connection_settings (id, server, port, database_name, username,
+      `INSERT INTO connection_settings (workspace_id, server, port, database_name, username,
         password_encrypted, encrypt, trust_server_certificate, staging_folder, updated_at)
-      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET server = excluded.server, port = excluded.port,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(workspace_id) DO UPDATE SET server = excluded.server, port = excluded.port,
         database_name = excluded.database_name, username = excluded.username,
         password_encrypted = excluded.password_encrypted, encrypt = excluded.encrypt,
         trust_server_certificate = excluded.trust_server_certificate,
         staging_folder = excluded.staging_folder, updated_at = excluded.updated_at`,
     )
     .run(
+      currentWorkspaceId("admin"),
       fields.server,
       fields.port,
       fields.database,
@@ -210,6 +225,11 @@ export function saveConnection(value: unknown): PublicConnection {
       fields.stagingFolder,
       new Date().toISOString(),
     );
+  auditEvent(
+    previous ? "connection.changed" : "connection.created",
+    "connection",
+    currentWorkspaceId(),
+  );
   return readPublicConnection();
 }
 
@@ -275,48 +295,66 @@ export interface ConnectionTestResult {
 export async function testConnection(
   value?: unknown,
 ): Promise<ConnectionTestResult> {
-  let settings: SqlConnectionSettings;
-  if (
-    value === undefined ||
-    (typeof value === "object" && value !== null && !Object.keys(value).length)
-  ) {
-    settings = getConnectionSettings();
-  } else {
-    const fields = checkedFields(value);
-    settings = {
-      ...fields,
-      password: fields.password || getConnectionSettings().password,
-    };
-  }
-  const { default: sql } = await import("mssql");
-  const pool = new sql.ConnectionPool(connectionConfig(settings, 10_000));
-  // Pool-level socket failures may also emit an error event; handle them without logging secrets.
-  pool.on("error", () => {});
+  const workspaceId = currentWorkspaceId("admin");
+  let succeeded = false;
   try {
-    await pool.connect();
-    const result = await pool
-      .request()
-      .query("SELECT @@VERSION AS [version], DB_NAME() AS [database]");
-    const row = result.recordset[0] as
-      { version?: unknown; database?: unknown } | undefined;
-    const version = redactSecrets(String(row?.version ?? "SQL Server"), [
-      settings.password,
-      process.env.DATAFORGE_SECRET ?? "",
-    ]);
-    const database = redactSecrets(String(row?.database ?? settings.database), [
-      settings.password,
-      process.env.DATAFORGE_SECRET ?? "",
-    ]);
-    return {
-      success: true,
-      version,
-      database,
-      message: "Connection succeeded using SQL authentication.",
-    };
-  } catch (error) {
-    throw new HttpError(400, friendlyConnectionError(error, settings.password));
+    let settings: SqlConnectionSettings;
+    if (
+      value === undefined ||
+      (typeof value === "object" &&
+        value !== null &&
+        !Object.keys(value).length)
+    ) {
+      settings = getConnectionSettings();
+    } else {
+      const fields = checkedFields(value);
+      settings = {
+        ...fields,
+        password: fields.password || getConnectionSettings().password,
+      };
+    }
+    const { default: sql } = await import("mssql");
+    const pool = new sql.ConnectionPool(connectionConfig(settings, 10_000));
+    // Pool-level socket failures may also emit an error event; handle them without logging secrets.
+    pool.on("error", () => {});
+    try {
+      await pool.connect();
+      const result = await pool
+        .request()
+        .query("SELECT @@VERSION AS [version], DB_NAME() AS [database]");
+      const row = result.recordset[0] as
+        { version?: unknown; database?: unknown } | undefined;
+      const version = redactSecrets(String(row?.version ?? "SQL Server"), [
+        settings.password,
+        process.env.DATAFORGE_SECRET ?? "",
+      ]);
+      const database = redactSecrets(
+        String(row?.database ?? settings.database),
+        [settings.password, process.env.DATAFORGE_SECRET ?? ""],
+      );
+      succeeded = true;
+      return {
+        success: true,
+        version,
+        database,
+        message: "Connection succeeded using SQL authentication.",
+      };
+    } catch (error) {
+      throw new HttpError(
+        400,
+        friendlyConnectionError(error, settings.password),
+      );
+    } finally {
+      await pool.close().catch(() => {});
+    }
   } finally {
-    await pool.close().catch(() => {});
+    auditEvent(
+      "connection.tested",
+      "connection",
+      workspaceId,
+      { success: succeeded },
+      { workspaceId },
+    );
   }
 }
 
@@ -336,4 +374,10 @@ export async function readConnectionRequest(
     if (error instanceof HttpError) throw error;
     throw new HttpError(400, "The connection request is not valid JSON.");
   }
+}
+
+/** Load confirmation needs a target identity, never administration fields or credentials. */
+export function readExecutionTarget(): PublicConnection {
+  const connection = readPublicConnection();
+  return { ...connection, user: "", stagingFolder: "" };
 }

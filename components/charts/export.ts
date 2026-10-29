@@ -1,5 +1,5 @@
 /** Export a self-contained SVG with resolved theme colors, or rasterize it locally. */
-export async function exportChart(element: HTMLElement, format: "svg" | "png", filename: string): Promise<void> {
+export async function exportChart(element: HTMLElement, format: "svg" | "png", filename: string, projectId?: string): Promise<void> {
   const original = element.querySelector<SVGSVGElement>("svg[data-explore-chart]");
   if (!original) throw new Error("Choose a chart before exporting an image.");
   const clone = original.cloneNode(true) as SVGSVGElement;
@@ -45,4 +45,5 @@ export async function exportChart(element: HTMLElement, format: "svg" | "png", f
     link.href = url; link.download = `${filename.replace(/[^\w .-]/g, "_").slice(0, 120) || "dataforge-chart"}.${format}`;
     document.body.append(link); link.click(); link.remove();
   } finally { setTimeout(() => URL.revokeObjectURL(url), 1_000); }
+  if(projectId)await fetch(`/api/projects/${encodeURIComponent(projectId)}/exports/audit`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({format})}).catch(()=>{});
 }

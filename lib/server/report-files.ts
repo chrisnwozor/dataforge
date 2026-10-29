@@ -1,4 +1,6 @@
-import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { currentWorkspaceId, localMode } from "@/lib/auth/context";
+import { scopedResourceProject } from "@/lib/auth/guards";
+import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { dataDirectory } from "./db";
@@ -22,7 +24,11 @@ function validId(value: string): string {
 
 /** Every application-controlled segment is a UUID; never trust stored/client paths. */
 function checkedDirectory(segments: string[], create: boolean): string {
+  const projectId=localMode()?null:scopedResourceProject("reports",segments[0]);
   const base = dataDirectory();
+  const workspaceId=currentWorkspaceId();
+  const legacy=localMode()||(workspaceId==="00000000-0000-4000-8000-000000000001"&&existsSync(/* turbopackIgnore: true */ join(base,"exports",segments[0])));
+  const prefix=legacy?[]:["workspaces",workspaceId,"projects",projectId!];
   if (create) mkdirSync(/* turbopackIgnore: true */ base, { recursive: true });
   // The configured data root is an administrator choice. Paths below it may not
   // redirect through links, including a pre-existing exports symlink.
@@ -30,7 +36,7 @@ function checkedDirectory(segments: string[], create: boolean): string {
   try { directory = realpathSync(/* turbopackIgnore: true */ base); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new HttpError(404, "The report export file is no longer available."); throw error; }
   const root = directory;
-  for (const segment of ["exports", ...segments]) {
+  for (const segment of [...prefix, "exports", ...segments]) {
     directory = join(/* turbopackIgnore: true */ directory, segment);
     if (create) {
       try { mkdirSync(/* turbopackIgnore: true */ directory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }

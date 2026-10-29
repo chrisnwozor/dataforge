@@ -1,3 +1,5 @@
+import { auditEvent } from "@/lib/auth/audit";
+import { currentContext, localMode, requireProjectAccess } from "@/lib/auth/context";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { reportDefinitionSchema, reportDocumentSchema, reportParameterValuesSchema, type ReportDocument, type ReportParameterValues, type SavedReport } from "@/lib/reports/schema";
@@ -57,16 +59,19 @@ function validateViewReferences(projectId: string, document: ReportDocument): vo
   }
 }
 export function listReports(projectId: string): ReportListEntry[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   return getDatabase().prepare("SELECT r.id, r.project_id AS projectId, r.name, r.description, r.definition, r.created_at AS createdAt, r.updated_at AS updatedAt, (SELECT rr.status FROM report_runs rr WHERE rr.report_id = r.id ORDER BY rr.started_at DESC, rr.id DESC LIMIT 1) AS lastStatus, (SELECT rr.started_at FROM report_runs rr WHERE rr.report_id = r.id ORDER BY rr.started_at DESC, rr.id DESC LIMIT 1) AS lastStartedAt, (SELECT COUNT(*) FROM report_schedules s WHERE s.report_id = r.id AND s.enabled = 1) AS scheduleCount FROM reports r WHERE r.project_id = ? ORDER BY r.updated_at DESC, r.id").all(projectId).map((row) => ({
     ...readReport(row), lastRun: row.lastStatus ? { status: runStatusSchema.parse(row.lastStatus), startedAt: timestamp.parse(row.lastStartedAt) } : null, scheduleCount: Number(row.scheduleCount),
   }));
 }
 export function getReport(projectId: string, reportId: string): SavedReport {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const row = getDatabase().prepare("SELECT id, project_id AS projectId, name, description, definition, created_at AS createdAt, updated_at AS updatedAt FROM reports WHERE project_id = ? AND id = ?").get(projectId, validateReportId(reportId));
   if (!row) throw new HttpError(404, "Report not found in this project.");
   return readReport(row);
 }
 export function createReport(projectId: string, input: unknown): SavedReport {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const parsed = reportDocumentSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide a report name and a valid versioned definition.");
   const id = randomUUID(), now = new Date().toISOString();
@@ -77,6 +82,7 @@ export function createReport(projectId: string, input: unknown): SavedReport {
   });
 }
 export function updateReport(projectId: string, reportId: string, input: unknown): SavedReport {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const parsed = updateSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide valid report edits and an optional saved updatedAt timestamp.");
   return withTransaction(getDatabase(), () => {
@@ -92,15 +98,17 @@ export function updateReport(projectId: string, reportId: string, input: unknown
   });
 }
 export function duplicateReport(projectId: string, reportId: string): SavedReport {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const saved = getReport(projectId, reportId);
   return createReport(projectId, { name: `${saved.name.slice(0, 115)} copy`, description: saved.description,
     definition: { ...saved.definition, items: saved.definition.items.map((item) => ({ ...item, id: randomUUID() })) } });
 }
 export function deleteReport(projectId: string, reportId: string): void {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   getReport(projectId, reportId);
   if (getActiveReportRun(projectId, reportId)) throw new HttpError(409, "Cancel the active report run before deleting this report.");
   removeReportExports(reportId);
-  getDatabase().prepare("DELETE FROM reports WHERE project_id = ? AND id = ?").run(projectId, reportId);
+  withTransaction(getDatabase(),()=>{auditEvent("report.deleted","report",reportId);getDatabase().prepare("DELETE FROM reports WHERE project_id = ? AND id = ?").run(projectId, reportId);});
 }
 
 function readRun(row: Record<string, unknown>): ReportRun {
@@ -116,21 +124,25 @@ function readRun(row: Record<string, unknown>): ReportRun {
 }
 const runSelect = "SELECT rr.id, rr.report_id AS reportId, r.project_id AS projectId, rr.status, rr.params, rr.row_count AS rowCount, rr.page_count AS pageCount, rr.started_at AS startedAt, rr.finished_at AS finishedAt, rr.error, rr.file_paths AS filePaths, rr.owner_pid AS ownerPid, rr.trigger_type AS trigger FROM report_runs rr JOIN reports r ON r.id = rr.report_id";
 export function listReportRuns(projectId: string, reportId: string): ReportRun[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   getReport(projectId, reportId);
   return getDatabase().prepare(`${runSelect} WHERE r.project_id = ? AND rr.report_id = ? ORDER BY rr.started_at DESC, rr.id`).all(projectId, reportId).map(readRun);
 }
 export function getReportRun(projectId: string, reportId: string, runId: string): ReportRun {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   getReport(projectId, reportId);
   const row = getDatabase().prepare(`${runSelect} WHERE r.project_id = ? AND rr.report_id = ? AND rr.id = ?`).get(projectId, reportId, validateReportId(runId));
   if (!row) throw new HttpError(404, "Report run not found in this project.");
   return readRun(row);
 }
 export function getActiveReportRun(projectId: string, reportId: string): ReportRun | null {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   getReport(projectId, reportId);
   const row = getDatabase().prepare(`${runSelect} WHERE r.project_id = ? AND rr.report_id = ? AND rr.status IN ('queued', 'running') LIMIT 1`).get(projectId, reportId);
   return row ? readRun(row) : null;
 }
 export function createReportRun(projectId: string, reportId: string, input: { params?: ReportParameterValues; ownerPid?: number; trigger?: "manual" | "scheduled" } = {}): ReportRun {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   getReport(projectId, reportId);
   const params = reportParameterValuesSchema.safeParse(input.params ?? {});
   if (!params.success) throw new HttpError(400, "Provide valid report parameter values.");
@@ -142,6 +154,7 @@ export function createReportRun(projectId: string, reportId: string, input: { pa
   return getReportRun(projectId, reportId, id);
 }
 export function updateReportRun(projectId: string, reportId: string, runId: string, input: unknown): ReportRun {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const parsed = runPatchSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide valid report run updates.");
   const saved = getReportRun(projectId, reportId, runId);
@@ -155,17 +168,20 @@ export function updateReportRun(projectId: string, reportId: string, runId: stri
   return getReportRun(projectId, reportId, runId);
 }
 export function deleteReportRun(projectId: string, reportId: string, runId: string): void {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const run = getReportRun(projectId, reportId, runId);
   if (run.status === "queued" || run.status === "running") throw new HttpError(409, "Cancel the report run before deleting it.");
   removeReportExports(reportId, runId);
   getDatabase().prepare("DELETE FROM report_runs WHERE id = ? AND report_id = ?").run(runId, reportId);
 }
 export function pruneReportRuns(projectId: string, reportId: string, keep?: number): number {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const report = getReport(projectId, reportId);
   const count = keep ?? report.definition.retentionCount;
   if (!Number.isInteger(count) || count < 1 || count > 1_000) throw new HttpError(400, "Choose a report retention count from 1 to 1,000.");
   const runs = listReportRuns(projectId, reportId).filter((run) => !["queued", "running"].includes(run.status)).slice(count);
-  for (const run of runs) deleteReportRun(projectId, reportId, run.id);
+  // Automatic retention follows the saved report policy, including viewer renders.
+  for (const run of runs) {removeReportExports(reportId,run.id);getDatabase().prepare("DELETE FROM report_runs WHERE id=? AND report_id=?").run(run.id,reportId); }
   return runs.length;
 }
 
@@ -195,25 +211,29 @@ function readSchedule(row: Record<string, unknown>): ReportSchedule {
 }
 const scheduleSelect = "SELECT s.id, s.report_id AS reportId, r.project_id AS projectId, s.cron, s.timezone, s.params, s.formats, s.enabled, s.last_run_at AS lastRunAt, s.next_run_at AS nextRunAt FROM report_schedules s JOIN reports r ON r.id = s.report_id";
 export function listReportSchedules(projectId: string, reportId: string): ReportSchedule[] {
+  if (!localMode()) requireProjectAccess(projectId, "admin");
   getReport(projectId, reportId);
   return getDatabase().prepare(`${scheduleSelect} WHERE r.project_id = ? AND s.report_id = ? ORDER BY s.id`).all(projectId, reportId).map(readSchedule);
 }
 export function getReportSchedule(projectId: string, reportId: string, scheduleId: string): ReportSchedule {
+  if (!localMode()) requireProjectAccess(projectId, "admin");
   getReport(projectId, reportId);
   const row = getDatabase().prepare(`${scheduleSelect} WHERE r.project_id = ? AND s.report_id = ? AND s.id = ?`).get(projectId, reportId, validateReportId(scheduleId));
   if (!row) throw new HttpError(404, "Report schedule not found in this project.");
   return readSchedule(row);
 }
 export function createReportSchedule(projectId: string, reportId: string, input: unknown): ReportSchedule {
+  if (!localMode()) requireProjectAccess(projectId, "admin");
   getReport(projectId, reportId);
   const parsed = reportScheduleInputSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide a cron schedule, valid timezone, parameters, and export formats.");
   const id = randomUUID(), value = parsed.data;
-  getDatabase().prepare("INSERT INTO report_schedules (id, report_id, cron, timezone, params, formats, enabled, last_run_at, next_run_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(id, reportId, value.cron, value.timezone, JSON.stringify(value.params), JSON.stringify(value.formats), value.enabled ? 1 : 0, value.lastRunAt ?? null, value.nextRunAt ?? null);
+  getDatabase().prepare("INSERT INTO report_schedules (id, report_id, cron, timezone, params, formats, enabled, last_run_at, next_run_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(id, reportId, value.cron, value.timezone, JSON.stringify(value.params), JSON.stringify(value.formats), value.enabled ? 1 : 0, value.lastRunAt ?? null, value.nextRunAt ?? null, localMode() ? null : currentContext().user.id);
   return getReportSchedule(projectId, reportId, id);
 }
 export function updateReportSchedule(projectId: string, reportId: string, scheduleId: string, input: unknown): ReportSchedule {
+  if (!localMode()) requireProjectAccess(projectId, "admin");
   const parsed = schedulePatchSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide valid report schedule edits.");
   const saved = getReportSchedule(projectId, reportId, scheduleId);
@@ -223,6 +243,7 @@ export function updateReportSchedule(projectId: string, reportId: string, schedu
   return getReportSchedule(projectId, reportId, scheduleId);
 }
 export function deleteReportSchedule(projectId: string, reportId: string, scheduleId: string): void {
+  if (!localMode()) requireProjectAccess(projectId, "admin");
   getReportSchedule(projectId, reportId, scheduleId);
   getDatabase().prepare("DELETE FROM report_schedules WHERE id = ? AND report_id = ?").run(scheduleId, reportId);
 }

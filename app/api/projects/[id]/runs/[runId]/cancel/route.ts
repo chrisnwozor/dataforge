@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { z } from "zod";
 import { isTerminalRun } from "@/lib/runner/types";
 import { errorResponse, HttpError } from "@/lib/server/http";
@@ -11,7 +12,7 @@ import { getRun } from "@/lib/server/runs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(
+async function handlePOST(
   request: Request,
   context: ProjectRunContext,
 ): Promise<Response> {
@@ -34,3 +35,5 @@ export async function POST(
     return errorResponse(error, "The run could not be cancelled. Try again.");
   }
 }
+
+export const POST = withProjectRoute("editor", handlePOST);

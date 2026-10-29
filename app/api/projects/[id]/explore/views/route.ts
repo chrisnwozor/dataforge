@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { errorResponse } from "@/lib/server/http";
 import { requireModelProject, type ProjectModelContext } from "@/lib/server/model-http";
 import { createExploreView, listExploreViews, readExploreViewBody } from "@/lib/server/explore-views";
@@ -5,7 +6,7 @@ import { createExploreView, listExploreViews, readExploreViewBody } from "@/lib/
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, context: ProjectModelContext): Promise<Response> {
+async function handleGET(_request: Request, context: ProjectModelContext): Promise<Response> {
   try {
     const id = await requireModelProject(context);
     return Response.json({ views: listExploreViews(id) }, { headers: { "Cache-Control": "no-store" } });
@@ -14,7 +15,7 @@ export async function GET(_request: Request, context: ProjectModelContext): Prom
   }
 }
 
-export async function POST(request: Request, context: ProjectModelContext): Promise<Response> {
+async function handlePOST(request: Request, context: ProjectModelContext): Promise<Response> {
   try {
     const id = await requireModelProject(context);
     return Response.json(createExploreView(id, await readExploreViewBody(request)), {
@@ -24,3 +25,6 @@ export async function POST(request: Request, context: ProjectModelContext): Prom
     return errorResponse(error, "The Explore view could not be saved.");
   }
 }
+
+export const GET = withProjectRoute("viewer", handleGET);
+export const POST = withProjectRoute("editor", handlePOST);

@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { regenerateModel } from "@/lib/server/models";
 import { errorResponse, HttpError } from "@/lib/server/http";
 import { ProjectNotFoundError } from "@/lib/server/projects";
@@ -9,7 +10,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(
+async function handlePOST(
   _request: Request,
   context: ProjectModelContext,
 ): Promise<Response> {
@@ -26,3 +27,5 @@ export async function POST(
     );
   }
 }
+
+export const POST = withProjectRoute("editor", handlePOST);

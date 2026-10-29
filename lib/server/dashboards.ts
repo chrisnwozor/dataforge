@@ -1,3 +1,5 @@
+import { auditEvent } from "@/lib/auth/audit";
+import { localMode, requireProjectAccess } from "@/lib/auth/context";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -59,11 +61,13 @@ function validateViewReferences(projectId: string, document: DashboardDocument):
 }
 
 export function listDashboards(projectId: string): SavedDashboard[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   return getDatabase().prepare("SELECT id, project_id AS projectId, name, description, layout, filters, settings, created_at AS createdAt, updated_at AS updatedAt FROM dashboards WHERE project_id = ? ORDER BY updated_at DESC, id")
     .all(projectId).map(readDashboard);
 }
 
 export function getDashboard(projectId: string, dashboardId: string): SavedDashboard {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const row = getDatabase().prepare("SELECT id, project_id AS projectId, name, description, layout, filters, settings, created_at AS createdAt, updated_at AS updatedAt FROM dashboards WHERE project_id = ? AND id = ?")
     .get(projectId, validateDashboardId(dashboardId));
   if (!row) throw new HttpError(404, "Dashboard not found in this project.");
@@ -71,6 +75,7 @@ export function getDashboard(projectId: string, dashboardId: string): SavedDashb
 }
 
 export function createDashboard(projectId: string, input: unknown): SavedDashboard {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const parsed = dashboardDocumentSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide a dashboard name and a valid versioned layout, filters, and settings.");
   const id = randomUUID();
@@ -84,6 +89,7 @@ export function createDashboard(projectId: string, input: unknown): SavedDashboa
 }
 
 export function updateDashboard(projectId: string, dashboardId: string, input: unknown): SavedDashboard {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const parsed = updateSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide valid dashboard edits and an optional saved updatedAt timestamp.");
   return withTransaction(getDatabase(), () => {
@@ -107,6 +113,7 @@ export function updateDashboard(projectId: string, dashboardId: string, input: u
 }
 
 export function duplicateDashboard(projectId: string, dashboardId: string): SavedDashboard {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const saved = getDashboard(projectId, dashboardId);
   return createDashboard(projectId, {
     name: `${saved.name.slice(0, 115)} copy`, description: saved.description,
@@ -116,8 +123,9 @@ export function duplicateDashboard(projectId: string, dashboardId: string): Save
 }
 
 export function deleteDashboard(projectId: string, dashboardId: string): void {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   getDashboard(projectId, dashboardId);
-  getDatabase().prepare("DELETE FROM dashboards WHERE project_id = ? AND id = ?").run(projectId, dashboardId);
+  withTransaction(getDatabase(),()=>{auditEvent("dashboard.deleted","dashboard",dashboardId);getDatabase().prepare("DELETE FROM dashboards WHERE project_id = ? AND id = ?").run(projectId, dashboardId);});
 }
 
 export async function readDashboardBody(request: Request): Promise<unknown> {

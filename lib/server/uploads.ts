@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
+import { rm, writeFile } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import { profileFile } from "@/lib/profiler";
 import type { ProfileResult } from "@/lib/profiler";
 import { HttpError, boundedBody } from "./http";
 import {
-  projectUploadDirectory,
+  createProjectUploadDirectory,
   saveProjectProfile,
   profileReport,
   type StoredProject,
@@ -154,9 +154,7 @@ export async function createProjectFromUpload(
   const sourceType = await validateFile(file);
   const id = randomUUID();
   const sourceFile = safeFileName(file.name, sourceType);
-  const directory = projectUploadDirectory(id);
-  await mkdir(dirname(directory), { recursive: true });
-  await mkdir(directory);
+  const directory = createProjectUploadDirectory(id);
   try {
     const filePath = join(/* turbopackIgnore: true */ directory, sourceFile);
     await writeFile(filePath, new Uint8Array(await file.arrayBuffer()), {

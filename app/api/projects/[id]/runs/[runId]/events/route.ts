@@ -1,3 +1,6 @@
+import { currentContext, localMode, requireProjectAccess } from "@/lib/auth/context";
+import { assertSessionActive } from "@/lib/auth/sessions";
+import { withProjectRoute } from "@/lib/auth/guards";
 import { isTerminalRun } from "@/lib/runner/types";
 import { errorResponse } from "@/lib/server/http";
 import {
@@ -9,12 +12,12 @@ import { getRunDetail } from "@/lib/server/runs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
+async function handleGET(
   request: Request,
   context: ProjectRunContext,
 ): Promise<Response> {
   try {
-    const { runId } = await requireProjectRun(context);
+    const { projectId, runId } = await requireProjectRun(context);
     const encoder = new TextEncoder();
     let stop: () => void = () => {};
     const body = new ReadableStream<Uint8Array>({
@@ -39,6 +42,7 @@ export async function GET(
           if (closed) return;
           if (!initial && (controller.desiredSize ?? 0) <= 0) return;
           try {
+            if(!localMode()){assertSessionActive(currentContext());requireProjectAccess(projectId,"editor");}
             const detail = getRunDetail(runId);
             if (!detail) {
               close();
@@ -91,3 +95,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withProjectRoute("editor", handleGET);

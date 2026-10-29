@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { errorResponse } from "@/lib/server/http";
 import {
   requireProjectRun,
@@ -8,7 +9,7 @@ import { getRunDetail } from "@/lib/server/runs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
+async function handleGET(
   _request: Request,
   context: ProjectRunContext,
 ): Promise<Response> {
@@ -21,3 +22,5 @@ export async function GET(
     return errorResponse(error, "The run could not be loaded. Try again.");
   }
 }
+
+export const GET = withProjectRoute("editor", handleGET);

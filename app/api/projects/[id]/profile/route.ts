@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import {
   findProject,
   readColumnProfiles,
@@ -40,7 +41,7 @@ async function requireProject(context: ProjectContext): Promise<StoredProject> {
   return ensureProjectEvidence(project.id);
 }
 
-export async function GET(
+async function handleGET(
   _request: Request,
   context: ProjectContext,
 ): Promise<Response> {
@@ -59,7 +60,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
+async function handlePATCH(
   request: Request,
   context: ProjectContext,
 ): Promise<Response> {
@@ -107,3 +108,6 @@ export async function PATCH(
     );
   }
 }
+
+export const GET = withProjectRoute("editor", handleGET);
+export const PATCH = withProjectRoute("editor", handlePATCH);

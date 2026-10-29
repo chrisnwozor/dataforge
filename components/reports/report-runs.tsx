@@ -1,4 +1,5 @@
 "use client";
+import {canEdit,useWorkspaceRole} from "@/components/auth/provider";
 
 import { useEffect, useState } from "react";
 import { Download, History, Loader2, RefreshCw, Trash2, X } from "lucide-react";
@@ -14,6 +15,7 @@ const localDate = (value: string) => new Date(value).toLocaleString(undefined, {
 interface Props { projectId: string; reportId: string; refreshToken?: number; onOpenRun?: (runId: string) => void }
 
 export function ReportRuns({ projectId, reportId, refreshToken = 0, onOpenRun }: Props) {
+  const editable=canEdit(useWorkspaceRole());
   const [runs, setRuns] = useState<ReportRun[] | null>(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -57,7 +59,7 @@ export function ReportRuns({ projectId, reportId, refreshToken = 0, onOpenRun }:
           <td><time dateTime={run.startedAt}>{localDate(run.startedAt)}</time></td><td>{reportRunDuration(run)}</td><td>{run.rowCount.toLocaleString()} rows<br /><span className={styles.muted}>{run.pageCount.toLocaleString()} pages</span></td>
           <td>{Object.keys(run.params).length ? <details className={styles.params}><summary>{Object.keys(run.params).length} parameter{Object.keys(run.params).length === 1 ? "" : "s"}</summary><pre>{JSON.stringify(run.params, null, 2)}</pre></details> : <span className={styles.muted}>None</span>}</td>
           <td><div className={styles.exportLinks}>{(["pdf", "xlsx", "csv"] as const).filter((format) => run.filePaths[format]).map((format) => <a href={`${endpoint}/${encodeURIComponent(run.id)}/download?format=${format}`} key={format} aria-label={`Download ${format.toUpperCase()} for run ${run.id.slice(0, 8)}`}><Download size={11} aria-hidden="true" />{format.toUpperCase()}</a>)}</div></td>
-          <td>{active ? <Button size="sm" variant="ghost" disabled={busy === run.id} onClick={() => void mutate(run, "cancel")} aria-label={`Cancel report run ${run.id.slice(0, 8)}`}><X size={13} aria-hidden="true" />Cancel</Button> : <Button size="icon" variant="ghost" disabled={busy === run.id} onClick={() => void mutate(run, "delete")} aria-label={`Delete report run ${run.id.slice(0, 8)}`}><Trash2 size={13} aria-hidden="true" /></Button>}</td>
+          <td>{active ? <Button size="sm" variant="ghost" disabled={busy === run.id} onClick={() => void mutate(run, "cancel")} aria-label={`Cancel report run ${run.id.slice(0, 8)}`}><X size={13} aria-hidden="true" />Cancel</Button> : <Button size="icon" variant="ghost" disabled={!editable || busy === run.id} onClick={() => void mutate(run, "delete")} aria-label={`Delete report run ${run.id.slice(0, 8)}`}><Trash2 size={13} aria-hidden="true" /></Button>}</td>
         </tr>;
       })}</tbody>
     </table></div>}

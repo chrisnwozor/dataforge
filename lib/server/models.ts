@@ -1,3 +1,4 @@
+import { localMode, requireProjectAccess } from "@/lib/auth/context";
 import { basename, extname } from "node:path";
 import { modelSchema } from "@/lib/modeling/schema";
 import { suggestModel } from "@/lib/modeling/suggest";
@@ -111,6 +112,7 @@ function checkedModel(projectId: string, value: unknown): Model {
 
 /** Read-only: this never generates a model or replaces a saved draft. */
 export function readSavedModel(projectId: string): SavedModel | undefined {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const row = getDatabase()
     .prepare(
       "SELECT json, source, updated_at AS updatedAt FROM models WHERE project_id = ?",
@@ -137,6 +139,7 @@ export function readSavedModel(projectId: string): SavedModel | undefined {
 
 /** Produce a fresh suggestion without changing an existing model. */
 export async function createModelSuggestion(projectId: string): Promise<Model> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const project = await ensureProjectEvidence(projectId);
   const report = readProfileReport(projectId);
   const sourceFile = basename(project.sourceFile);
@@ -161,6 +164,7 @@ export async function createModelSuggestion(projectId: string): Promise<Model> {
 
 /** First access inserts only if absent, preserving edits from concurrent requests. */
 export async function getOrCreateModel(projectId: string): Promise<SavedModel> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   if (!findProject(projectId))
     throw new ProjectNotFoundError("Project not found.");
   const existing = readSavedModel(projectId);
@@ -209,10 +213,12 @@ function writeModel(
 }
 
 export function saveEditedModel(projectId: string, value: unknown): SavedModel {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   return writeModel(projectId, value, "edited");
 }
 
 export async function regenerateModel(projectId: string): Promise<SavedModel> {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   return writeModel(
     projectId,
     await createModelSuggestion(projectId),

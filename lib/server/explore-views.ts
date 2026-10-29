@@ -1,3 +1,4 @@
+import { localMode, requireProjectAccess } from "@/lib/auth/context";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { viewConfigSchema, type ViewConfig } from "@/lib/explore/config";
@@ -41,11 +42,13 @@ export function validateExploreViewId(id: string): string {
 }
 
 export function listExploreViews(projectId: string): SavedExploreView[] {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   return getDatabase().prepare("SELECT id, project_id AS projectId, name, config, created_at AS createdAt, updated_at AS updatedAt FROM explore_views WHERE project_id = ? ORDER BY updated_at DESC, id")
     .all(projectId).map(read);
 }
 
 export function getExploreView(projectId: string, id: string): SavedExploreView {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const row = getDatabase().prepare("SELECT id, project_id AS projectId, name, config, created_at AS createdAt, updated_at AS updatedAt FROM explore_views WHERE project_id = ? AND id = ?")
     .get(projectId, validateExploreViewId(id));
   if (!row) throw new HttpError(404, "Explore view not found in this project.");
@@ -53,6 +56,7 @@ export function getExploreView(projectId: string, id: string): SavedExploreView 
 }
 
 export function createExploreView(projectId: string, input: unknown): SavedExploreView {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide a view name (1–120 characters) and a valid versioned view configuration.");
   const id = randomUUID();
@@ -63,6 +67,7 @@ export function createExploreView(projectId: string, input: unknown): SavedExplo
 }
 
 export function updateExploreView(projectId: string, id: string, input: unknown): SavedExploreView {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   const parsed = updateSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Provide a valid name or versioned view configuration.");
   const saved = getExploreView(projectId, id);
@@ -72,6 +77,7 @@ export function updateExploreView(projectId: string, id: string, input: unknown)
 }
 
 export function deleteExploreView(projectId: string, id: string): void {
+  if (!localMode()) requireProjectAccess(projectId, "editor");
   getExploreView(projectId, id);
   getDatabase().prepare("DELETE FROM explore_views WHERE project_id = ? AND id = ?").run(projectId, id);
 }

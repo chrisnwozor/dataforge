@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { cleanedSourceResponse } from "@/lib/server/cleaned-source";
 import { errorResponse } from "@/lib/server/http";
 import {
@@ -8,7 +9,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
+async function handleGET(
   request: Request,
   context: ProjectModelContext,
 ): Promise<Response> {
@@ -21,3 +22,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withProjectRoute("editor", handleGET);

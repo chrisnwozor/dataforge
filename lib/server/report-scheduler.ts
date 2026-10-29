@@ -1,3 +1,5 @@
+import { localMode } from "@/lib/auth/context";
+import { runScheduledContext } from "@/lib/auth/scheduled";
 import { nextCronRun } from "@/lib/reports/cron";
 import { advanceReportSchedule, getActiveReportRun, listDueReportSchedules, type ReportSchedule } from "./reports";
 
@@ -41,7 +43,13 @@ export async function tickReportSchedules(now: Date, run: ScheduledReportRunner,
       }
       continue;
     }
-    if (store.active(schedule.projectId, schedule.reportId)) {
+    let isActive: unknown;
+    try { isActive = options.store || localMode() ? store.active(schedule.projectId, schedule.reportId) : runScheduledContext(schedule.id, schedule.projectId, () => store.active(schedule.projectId, schedule.reportId)); }
+    catch {
+      store.advance(schedule.id, schedule.nextRunAt, { enabled: false, nextRunAt: null });
+      result.invalid++; log({event: "invalid", scheduleId: schedule.id, reportId: schedule.reportId}); continue;
+    }
+    if (isActive) {
       if (store.advance(schedule.id, schedule.nextRunAt, { nextRunAt: next })) {
         result.overlap++; log({ event: "overlap", scheduleId: schedule.id, reportId: schedule.reportId });
       }
@@ -49,7 +57,7 @@ export async function tickReportSchedules(now: Date, run: ScheduledReportRunner,
     }
     if (!store.advance(schedule.id, schedule.nextRunAt, { nextRunAt: next, lastRunAt: now.toISOString() })) continue;
     try {
-      await run(schedule);
+      await (options.store || localMode() ? run(schedule) : runScheduledContext(schedule.id, schedule.projectId, () => run(schedule)));
       result.started++; log({ event: "started", scheduleId: schedule.id, reportId: schedule.reportId });
     } catch {
       // The runner records its own failure; the scheduler logs only identities,

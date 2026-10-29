@@ -1,4 +1,5 @@
 "use client";
+import { useWorkspaceRole, canEdit } from "./auth/provider";
 import { IntentLink as Link } from "./intent-link";
 import { usePathname } from "next/navigation";
 import {
@@ -29,9 +30,10 @@ const tabs = [
 ];
 export function ProjectTabs({ id }: { id: string }) {
   const pathname = usePathname();
+  const role = useWorkspaceRole();
   return (
     <nav className="top-tabs" aria-label="Project navigation">
-      {tabs.map(({ label, path, Icon }) => (
+      {tabs.filter(tab => canEdit(role) || ["Overview", "Explore", "Dashboards", "Reports"].includes(tab.label)).map(({ label, path, Icon }) => (
         <Link
           key={label}
           href={`/projects/${id}${path}`}

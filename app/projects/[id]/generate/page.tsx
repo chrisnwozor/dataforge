@@ -1,19 +1,20 @@
+import { withProjectPage } from "@/lib/auth/guards";
 import { PageHeader } from "@/components/shared";
 import { GenerationWorkspace } from "@/components/generation-workspace";
 import { getGeneration } from "@/lib/server/generation";
-import { readPublicConnection } from "@/lib/server/connection";
+import { readExecutionTarget } from "@/lib/server/connection";
 import { findActiveRun } from "@/lib/server/runs";
 import { HttpError } from "@/lib/server/http";
 import { hasStoredPipeline } from "@/lib/server/prepare-storage";
 import { PreparationUnavailable } from "@/components/preparation-unavailable";
 export const metadata = { title: "Generate SQL" };
-export default async function GeneratePage({
+async function GeneratePage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const connection = readPublicConnection();
+  const connection = readExecutionTarget();
   let generation;
   try { generation = await getGeneration(id, connection.configured ? { db: connection.database } : {}); }
   catch (error) {
@@ -37,3 +38,5 @@ export default async function GeneratePage({
     </main>
   );
 }
+
+export default withProjectPage("editor", GeneratePage);

@@ -1,3 +1,4 @@
+import { withProjectRoute } from "@/lib/auth/guards";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { errorResponse, HttpError } from "@/lib/server/http";
@@ -8,7 +9,7 @@ import { openReportExport, reportExportFormatSchema, sanitizeReportFilename } fr
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = ProjectModelContext & { params: Promise<{ id: string; reportId: string; runId: string }> };
-export async function GET(request: Request, context: Context): Promise<Response> {
+async function handleGET(request: Request, context: Context): Promise<Response> {
   try { const id = await requireModelProject(context); const { reportId, runId } = await context.params;
     const format = reportExportFormatSchema.safeParse(new URL(request.url).searchParams.get("format"));
     if (!format.success) throw new HttpError(400, "Choose PDF, Excel, or CSV to download.");
@@ -24,3 +25,5 @@ export async function GET(request: Request, context: Context): Promise<Response>
     } });
   } catch (error) { return errorResponse(error, "The report export could not be downloaded."); }
 }
+
+export const GET = withProjectRoute("viewer", handleGET);

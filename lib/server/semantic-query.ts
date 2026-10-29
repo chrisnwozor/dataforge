@@ -1,3 +1,4 @@
+import { localMode, requireProjectAccess } from "@/lib/auth/context";
 import { ZodError } from "zod";
 import {
   compileQuery,
@@ -234,7 +235,9 @@ async function executeCached(
         signal,
         timeoutMs: remaining,
         onStart: (queuedMs) => { admitted = true; timing.timings.queueMs = queuedMs; },
-      }, (scheduledSignal, timeoutMs) => executeCompiledQuery(
+      }, (scheduledSignal, timeoutMs) => {
+        if (!localMode()) requireProjectAccess(projectId, "viewer");
+        return executeCompiledQuery(
         ready.settings,
         compiled,
         scheduledSignal,
@@ -254,7 +257,8 @@ async function executeCached(
             timing.timings[phase] = Math.max(0, phases[phase]!);
         },
         { timeoutMs },
-      ));
+      );
+      });
     } catch (error) {
       if (!admitted) timing.timings.queueMs = performance.now() - queueStart;
       throw error;
@@ -288,6 +292,7 @@ export async function runSemanticQuery(
   timing: QueryTimingContext = startQueryTiming(),
   options: { priority?: "main" | "totals" | "dashboard" | "report" | "reportScheduled" } = {},
 ): Promise<QueryResult> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   let normalized;
   const parseStart = performance.now();
   try {
@@ -366,6 +371,7 @@ export async function getDistinctValues(
   timing: QueryTimingContext = startQueryTiming(),
   options: { search?: string; limit?: number; priority?: "values" | "prefetch"; cache?: "default" | "bypass"; filters?: QueryFilter[] } = {},
 ): Promise<QueryResult> {
+  if (!localMode()) requireProjectAccess(projectId, "viewer");
   const revision = queryScheduler.getRevision(projectId);
   const search = options.search?.trim() ?? "";
   const limit = options.limit ?? 200;
