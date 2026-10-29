@@ -4,6 +4,9 @@ import { getColumnProfiles, getProfileReport } from "@/lib/data";
 import { PageHeader } from "@/components/shared";
 import { ProfileTable } from "@/components/profile-table";
 import { buttonVariants } from "@/components/ui/button";
+import { HttpError } from "@/lib/server/http";
+import { hasStoredPipeline } from "@/lib/server/prepare-storage";
+import { PreparationUnavailable } from "@/components/preparation-unavailable";
 export const metadata = { title: "Data profile" };
 export default async function ProfilePage({
   params,
@@ -11,10 +14,13 @@ export default async function ProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [columns, report] = await Promise.all([
-    getColumnProfiles(id),
-    getProfileReport(id),
-  ]);
+  let loaded;
+  try { loaded = await Promise.all([getColumnProfiles(id), getProfileReport(id)]); }
+  catch (error) {
+    if (error instanceof HttpError && hasStoredPipeline(id) && [409, 422].includes(error.status)) return <PreparationUnavailable projectId={id} title="Prepare your data before profiling" message={error.message} />;
+    throw error;
+  }
+  const [columns, report] = loaded;
   return (
     <main className="container">
       <PageHeader

@@ -212,11 +212,17 @@ async function openWorkbookRows(filePath: string): Promise<RowSource> {
 /** Export one row per pull; cancellation closes the source before it resolves. */
 export async function cleanedSourceResponse(
   projectId: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<Response> {
   if (!projectIdSchema.safeParse(projectId).success)
     throw new HttpError(400, "Invalid project ID.");
   const project = findProject(projectId);
   if (!project) throw new HttpError(404, "Project not found.");
+  const { readPipeline } = await import("./prepare-storage");
+  const saved = readPipeline(projectId);
+  if (saved && (saved.version > 1 || saved.definition.steps.length)) {
+    return (await import("./prepare-download")).preparedSourceResponse(projectId, options.signal);
+  }
   const filePath = await sourceFilePath(projectId);
   const source =
     project.sourceType === "XLSX"

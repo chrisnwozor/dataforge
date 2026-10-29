@@ -6,6 +6,7 @@ const config: NextConfig = {
     "/*": [
       "./node_modules/geist/dist/fonts/geist-sans/Geist-Regular.ttf",
       "./node_modules/geist/dist/fonts/geist-sans/Geist-Bold.ttf",
+      "./lib/prepare/regex-worker.js",
     ],
   },
 };

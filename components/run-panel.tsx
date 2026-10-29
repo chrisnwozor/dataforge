@@ -24,6 +24,7 @@ import { Button } from "./ui/button";
 import { DataTable } from "./shared";
 import { useRunLive } from "./use-run-live";
 import { number } from "@/lib/utils";
+import { PrepareQuality } from "./prepare-quality";
 
 export function runStatusLabel(status: RunStepStatus): string {
   return {
@@ -379,6 +380,7 @@ export function RunPanel({
               </div>
             </section>
           )}
+          {detail.run.prepareSummary && <PrepareQuality projectId={projectId} runId={runId} compact />}
           <section
             className="run-rejections"
             aria-labelledby="run-rejections-title"

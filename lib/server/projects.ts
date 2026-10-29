@@ -9,6 +9,8 @@ import type {
   ProfileResult,
 } from "@/lib/profiler";
 import { profileFile } from "@/lib/profiler";
+import { modelSchema } from "@/lib/modeling/schema";
+import { reconcilePreparedModel } from "@/lib/prepare/reconcile-model";
 import { HttpError } from "./http";
 import { dataDirectory, getDatabase, withTransaction } from "./db";
 
@@ -129,11 +131,45 @@ export function readColumnProfiles(projectId: string): StoredColumnProfile[] {
 }
 
 export function readProfileReport(projectId: string): ProfileReport {
+  const prepared = getDatabase().prepare("SELECT profile_report FROM project_pipelines WHERE project_id = ?").get(projectId);
+  if (prepared?.profile_report) return JSON.parse(String(prepared.profile_report)) as ProfileReport;
   const contents = readFileSync(
     join(projectUploadDirectory(projectId), "profile-report.json"),
     "utf8",
   );
   return JSON.parse(contents) as ProfileReport;
+}
+
+/** Publish one prepared generation atomically, without discarding compatible model edits. */
+export function publishPreparedProfile(projectId: string, version: number, profile: ProfileResult, filePath: string, explicitTypes: ReadonlyMap<string, InferredType> = new Map()): boolean {
+  const database = getDatabase();
+  return withTransaction(database, () => {
+    const pipeline = database.prepare("SELECT version, missing_columns FROM project_pipelines WHERE project_id = ?").get(projectId);
+    if (!pipeline || Number(pipeline.version) !== version) return false;
+    const existingColumns = readColumnProfiles(projectId);
+    const overrides = new Map(existingColumns.map((column) => [column.name, column.overrideType]));
+    const priorTypes = new Map(existingColumns.map((column) => [column.name, column.inferredType]));
+    const saved = database.prepare("SELECT json FROM models WHERE project_id = ?").get(projectId);
+    let missing: Record<string, string> = {};
+    if (saved) {
+      const parsed = modelSchema.safeParse(JSON.parse(String(saved.json)));
+      if (!parsed.success) throw new HttpError(409, "The saved model cannot be reconciled. Repair its JSON before preparing a new dataset.");
+      const reconciled = reconcilePreparedModel(parsed.data, existingColumns, profile.columns, JSON.parse(String(pipeline.missing_columns ?? "{}")));
+      reconciled.model.warnings = reconciled.model.warnings.filter((warning) => !/\b[\d,]+\s+(?:fully\s+)?duplicat(?:e|ed)\s+rows?\b/i.test(warning));
+      if (profile.duplicateRowCount) reconciled.model.warnings.push(`${profile.duplicateRowCount.toLocaleString("en-US")} duplicated rows exist. Consider removing exact duplicates.`);
+      modelSchema.parse(reconciled.model);
+      missing = reconciled.missing;
+      database.prepare("UPDATE models SET json = ?, updated_at = ? WHERE project_id = ?").run(JSON.stringify(reconciled.model), new Date().toISOString(), projectId);
+    }
+    database.prepare("DELETE FROM column_profiles WHERE project_id = ?").run(projectId);
+    const insert = database.prepare("INSERT INTO column_profiles (project_id, ordinal, name, inferred_type, override_type, null_pct, null_count, distinct_count, duplicate_count, min_value, max_value, is_key_candidate, is_near_key_candidate, sample_values, max_length, max_decimal_places) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const column of profile.columns) insert.run(projectId, column.ordinal, column.name, explicitTypes.get(column.name) ?? (profile.rowCount ? column.inferredType : priorTypes.get(column.name) ?? column.inferredType), explicitTypes.has(column.name) ? null : overrides.get(column.name) ?? null, column.nullPct, column.nullCount, column.distinctCount, column.duplicateCount, column.minValue, column.maxValue, column.isKeyCandidate ? 1 : 0, column.isNearKeyCandidate ? 1 : 0, JSON.stringify(column.sampleValues), column.maxLength ?? 0, column.maxDecimalPlaces ?? 0);
+    database.prepare("UPDATE projects SET status = ?, row_count = ?, column_count = ?, duplicate_row_count = ?, total_null_cells = ?, updated_at = ? WHERE id = ?")
+      .run(missing && Object.keys(missing).length ? "Needs review" : "Ready", profile.rowCount, profile.columnCount, profile.duplicateRowCount, profile.totalNullCells, new Date().toISOString(), projectId);
+    database.prepare("UPDATE project_pipelines SET profiled_version = ?, prepared_path = ?, profile_report = ?, missing_columns = ? WHERE project_id = ? AND version = ?")
+      .run(version, filePath, JSON.stringify(profileReport(profile)), JSON.stringify(missing), projectId, version);
+    return true;
+  });
 }
 
 export function saveProjectProfile(

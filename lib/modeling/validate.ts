@@ -17,7 +17,7 @@ export function validateModel(
     if (!known.has(id)) {
       add(
         "unknown-column",
-        `${table} references an unknown source column (${id}).`,
+        `${table} references a removed or unknown source column: ${model.columnNames[id] || id}. Repair this assignment after preparation.`,
       );
       return;
     }
@@ -110,7 +110,7 @@ export function validateModel(
     )
       add(
         "unknown-column",
-        `${foreignKey.name} references an unknown source column.`,
+        `${foreignKey.name} references a removed or unknown source column: ${model.columnNames[foreignKey.sourceColumnId] || foreignKey.sourceColumnId}.`,
       );
   }
   const explicitlyUnassigned = new Set(model.unassigned);
@@ -123,7 +123,7 @@ export function validateModel(
     if (!known.has(id))
       add(
         "unknown-column",
-        `Unassigned references an unknown source column (${id}).`,
+        `Unassigned references a removed or unknown source column: ${model.columnNames[id] || id}.`,
       );
     if (assignments.has(id))
       add(

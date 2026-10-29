@@ -11,9 +11,13 @@ import {
   ChartNoAxesCombined,
   PanelsTopLeft,
   FileBarChart2,
+  Files,
+  GitBranch,
 } from "lucide-react";
 const tabs = [
   { label: "Overview", path: "", Icon: LayoutDashboard },
+  { label: "Sources", path: "/sources", Icon: Files },
+  { label: "Prepare", path: "/prepare", Icon: GitBranch },
   { label: "Profile", path: "/profile", Icon: ListFilter },
   { label: "Model", path: "/model", Icon: Workflow },
   { label: "Measures", path: "/measures", Icon: Sigma },

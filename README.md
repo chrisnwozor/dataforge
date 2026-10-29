@@ -502,3 +502,62 @@ SQLite additively creates `reports`, `report_runs`, and `report_schedules`, pres
 | `/api/projects/<id>/reports/<reportId>/schedules` | Lists or creates schedules; member routes edit/delete them. |
 
 Unit and driver-double checks cover versioning, parameters/cascading, query/subtotal planning, pagination, formatting, export structure, path safety, retention, run concurrency/recovery, cron timezones/DST, missed runs, and no-overlap scheduling. Browser checks use semantic/query fixtures and real local SQLite report APIs. These checks do not establish live SQL Server numeric results or performance; run the live checks locally against your warehouse.
+
+## Sources, Prepare, and data quality
+
+Open **Sources** before **Profile** to add CSV, Excel, or JSON files to a project. The first file is the main input; other sources can be used by Join/Lookup and Union steps. Existing projects receive a passthrough pipeline automatically, preserving their saved profile and model until a real preparation change occurs. Source files are stored under `data/uploads/<projectId>/sources/` (or the corresponding `DATAFORGE_DATA_DIR`), never in Git. Uploads are limited to 50 MB per file.
+
+Sources shows row/column counts and a 20-row preview. CSV options include delimiter detection (comma, semicolon, tab) and a header row. Excel lists worksheets, supports selecting a header row, and can import each worksheet as a separate source. JSON accepts a root array of objects or a nested array path such as `data.orders`; nested objects become dot-named columns. Arrays of scalar values use a configurable separator, while arrays of objects are skipped with a warning. Replacing a file preserves its source ID and all pipeline steps; affected steps are listed when referenced columns disappear. The app blocks deletion of the main input or a source still referenced by a step.
+
+### Prepare a dataset
+
+**Prepare** edits a versioned vertical pipeline. Drag cards to reorder, or focus a move handle and use its keyboard controls. Steps can be enabled, duplicated, removed, and undone/redone (last 50 edits). Settings autosave with conflict protection. The editor shows a selected step's input and output, highlights changed columns, reports row counts, and lists column lineage. Preview uses the same engine as a full preparation, with at most the first 1,000 rows from each source; sorting, deduplication, lookup matches, and quality rates therefore describe that sample until the full preparation runs.
+
+Available steps cover column selection/rename/reorder/drop, type conversion and error policies, text cleaning, value replacement, filling/defaults, row filtering, safe derived expressions, splitting/merging columns, key-based deduplication, joins/lookups, union/append, unpivot, bounded sort, conditional reject routing, and quality checks. A left join keeps unmatched main rows with empty lookup values; an inner join removes them. Multiple lookup matches can choose the first row, reject the main row, or stop with an error. Deduplication can keep the first, last, minimum, or maximum row by selected keys.
+
+Derived expressions reference columns with `[Column Name]` and compile once without evaluating JavaScript. Arithmetic, comparisons, conditional/string/number/date functions are supported; expression length and nesting are capped. Type conversions support explicit date patterns and reject-row, set-NULL, or keep-text policies. Regular-expression operations run through a bounded safety wrapper with a pattern-length cap, cancellation, and a 100 ms per-row execution guard.
+
+Saving a changed pipeline or source queues a cancellable background preparation and streaming re-profile. Its prepared output updates the Profile screen and the columns used by model suggestions and SQL generation. Explicit text/decimal conversions survive CSV profiling, including numeric-looking text and whole decimal values. Model edits are retained for columns that still exist; removed referenced columns are listed as model validation errors. **Remove missing assignments** repairs those references while preserving valid tables and edits. Generation waits for the current prepared profile. **Run preparation** can be used without SQL Server to review the full-file results before loading a warehouse.
+
+### Quality rules and rejected rows
+
+Quality checks support required values, uniqueness, valid types, numeric/date ranges, string lengths, regular expressions, allowed values, and cross-column comparisons. A rule can reject a row, warn without removing it, or fail the preparation when its violation rate exceeds a configured percentage. Conditional Split sends matching rows to a named reject bucket. A failed preparation stops a load before any generated SQL executes.
+
+The Overview **Quality** card shows rows read, rows out, rejected rows, and per-rule counts. **Runs** includes preparation history even when no SQL connection is configured; select an entry to inspect its step counts and the first 100 rejected rows, including the original values, source row number, step, and rule. Download the rejects CSV for the full recorded reject stream. Reject files are stored next to that preparation's local run output. SQL load runs execute the pipeline first and include preparation progress and per-step counts in their live log.
+
+The generated scripts retain their existing staging contract: the final prepared CSV is UTF-8 with LF line endings and is staged as `<project-id>.csv`. **Cleaned CSV** on Generate downloads the prepared dataset, so the existing `01_staging.sql` through `05_checks.sql` use the same prepared columns as Profile and Model.
+
+### Bounds and throughput
+
+Row-local steps stream with backpressure. Materializing operations, including lookup indexes, retained deduplication keys/rows, statistical fills, and sorting, share explicit limits: by default **150 MB or 500,000 retained rows**, whichever is reached first. Exceeding a limit stops with advice to reduce columns or use a smaller lookup. Sort is in-memory and bounded; external merge sorting is outside this phase. Preview, profiling, and preparation/load runs support cancellation. No new network source connector or native module is installed.
+
+Sources and prepared output have a five-million-row ceiling. Unpivot expansion obeys the same ceiling before later filters, and yields regularly even when those filters discard every row, so cancellation remains responsive.
+
+An informational benchmark is available after installing development dependencies:
+
+```bash
+node scripts/prepare-benchmark.mjs
+# Optional larger sample:
+DATAFORGE_BENCH_ROWS=1000000 node scripts/prepare-benchmark.mjs
+```
+
+It measures a synthetic clean/derive/filter pipeline and reports rows per second against the 150,000 rows/second target. It is not a timing assertion in the test suite; disk, CPU, source format, regex steps, and materialization change throughput.
+
+### Joined orders example
+
+The small fixtures intentionally contain mixed-case labels, a duplicate order, duplicate lookup keys, a missing date, and an invalid quantity:
+
+- `samples/orders.csv` — create a project from this file and keep it as the main input.
+- `samples/customers.csv` — add it in Sources as a customer lookup.
+- `samples/products.xlsx` — add the **Products** worksheet as a product lookup. Other worksheets can be imported separately to try the multi-sheet flow.
+- `samples/prepare-example.json` — the exact example definition. Its `orders`, `customers`, and `products` source IDs are placeholders; substitute the IDs shown by `GET /api/projects/<id>/sources` when applying this definition through the API.
+
+Build the same example in Prepare:
+
+1. Deduplicate **Order ID**, keeping the first row. Change **Quantity** to integer and **Discount** to decimal, rejecting conversion errors. Convert **Order Date** using `yyyy-MM-dd`, then add a rejecting **not null** quality rule for Order Date.
+2. Left-join customers on **Customer ID**, bringing **Customer Name**, **Segment**, and **Region**. Left-join products on **Product ID**, bringing **Product**, **Category**, **Price**, and **Cost**. Use **first match** for duplicate lookup keys; switching to **error** or **reject** demonstrates the alternate policies.
+3. Clean Customer Name, Segment, Region, Product, and Category with **trim**, **collapse spaces**, and **title case**.
+4. Derive **Sales** with `[Quantity] * [Price]`. Derive **Profit** with `ROUND([Sales] * (1 - [Discount]) - [Quantity] * [Cost], 2)`.
+5. Select and order these final columns: Order ID, Order Date, Customer Name, Segment, Region, Product, Category, Sales, Quantity, Discount, Profit. Run preparation, then open Profile and Model.
+
+The full example reads **19 source rows** (9 orders plus 5 customer and 5 product lookup rows), outputs **6 orders across 11 columns**, removes **1 duplicated order**, and records **2 rejected source rows** (missing date and invalid quantity). Repeated lookup keys use the documented first-match policy. Preparation, profiling, preview, lineage, and reject downloads work locally without SQL Server; warehouse execution remains an optional later step against your configured SQL login.

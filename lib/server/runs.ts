@@ -16,6 +16,7 @@ import { isTerminalRun } from "@/lib/runner/types";
 import { getDatabase, withTransaction } from "./db";
 import { HttpError } from "./http";
 import { findProject } from "./projects";
+import { pipelineSummarySchema } from "./prepare-storage";
 
 const storedOptionsSchema = z
   .object({
@@ -62,6 +63,7 @@ function runFromRow(row: Row): RunRecord {
     errorNumber: row.error_number === null ? null : Number(row.error_number),
     errorLine: row.error_line === null ? null : Number(row.error_line),
     options: options.data,
+    ...(row.prepare_summary ? { prepareSummary: pipelineSummarySchema.parse(JSON.parse(String(row.prepare_summary))) } : {}),
   };
 }
 

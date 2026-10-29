@@ -30,6 +30,8 @@ function sourceColumns(projectId: string) {
 /** Check references separately from draft issues that users are allowed to save. */
 function validateReferences(projectId: string, model: Model): void {
   const ids = new Set(sourceColumns(projectId).map((column) => column.id));
+  const pipeline = getDatabase().prepare("SELECT missing_columns FROM project_pipelines WHERE project_id = ?").get(projectId);
+  const missing = new Set(Object.keys(JSON.parse(String(pipeline?.missing_columns ?? "{}"))));
   const sourceIds = [
     ...model.fact.measures.map((measure) => measure.columnId),
     ...model.fact.degenerateDimensions.map((column) => column.columnId),
@@ -41,7 +43,7 @@ function validateReferences(projectId: string, model: Model): void {
     ...Object.keys(model.columnNames),
     ...Object.keys(model.reasons),
   ];
-  if (sourceIds.some((id) => !ids.has(id)))
+  if (sourceIds.some((id) => !ids.has(id) && !missing.has(id)))
     throw new HttpError(400, "The model references an unknown source column.");
   if ([...ids].some((id) => !Object.hasOwn(model.columnNames, id)))
     throw new HttpError(

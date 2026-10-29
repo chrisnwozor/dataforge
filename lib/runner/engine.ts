@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { invalidateSemanticCache } from "@/lib/semantic/query/cache";
 import { createWriteStream } from "node:fs";
 import { rename, rm, stat } from "node:fs/promises";
-import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
   friendlyConnectionError,
@@ -10,7 +9,8 @@ import {
   readPublicConnection,
   type SqlConnectionSettings,
 } from "@/lib/server/connection";
-import { cleanedSourceResponse } from "@/lib/server/cleaned-source";
+import type { PipelineSummary } from "@/lib/prepare/types";
+import { readPipeline } from "@/lib/server/prepare-storage";
 import {
   getGeneration,
   type GenerationRequestOptions,
@@ -60,6 +60,7 @@ interface Job {
   abort: AbortController;
   transport?: SqlTransport;
   done: Promise<void>;
+  pipelineVersion?: number;
 }
 const globals = globalThis as typeof globalThis & {
   dataforgeRunnerJobs?: Map<string, Job>;
@@ -132,6 +133,8 @@ export async function stageCleanedSource(
   paths: StagingPaths,
   runId: string,
   signal: AbortSignal,
+  onPrepareProgress?: (summary: PipelineSummary) => void,
+  expectedPipelineVersion?: number,
 ): Promise<void> {
   const information = await stat(paths.directory).catch(() => null);
   if (!information?.isDirectory())
@@ -141,12 +144,18 @@ export async function stageCleanedSource(
   const temporary = `${paths.writePath}.${runId}.tmp`;
   try {
     signal.throwIfAborted();
-    const response = await cleanedSourceResponse(projectId);
-    if (!response.body) throw new Error("The cleaned source export was empty.");
+    let prepared: Awaited<ReturnType<typeof import("@/lib/server/prepare").executePreparedDataset>>;
+    try {
+      const { executePreparedDataset } = await import("@/lib/server/prepare");
+      prepared = await executePreparedDataset(projectId, { signal, runId, onProgress: onPrepareProgress, expectedVersion: expectedPipelineVersion });
+      onPrepareProgress?.(prepared.summary);
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      throw Object.assign(failure, { prepareFailure: true });
+    }
+    const { createReadStream } = await import("node:fs");
     await pipeline(
-      Readable.fromWeb(
-        response.body as import("node:stream/web").ReadableStream<Uint8Array>,
-      ),
+      createReadStream(/* turbopackIgnore: true */ prepared.filePath),
       createWriteStream(temporary, { flags: "wx", mode: 0o640 }),
       { signal },
     );
@@ -241,19 +250,37 @@ async function executeJob(
     log(
       job,
       "INFO",
-      "Writing the cleaned CSV to the configured staging folder.",
+      "Preparing the source pipeline and writing its CSV to the configured staging folder.",
     );
+    let lastProgress = 0;
+    const reported = new Map<string, number>();
     await dependencies.stageSource(
       job.run.projectId,
       job.paths,
       job.run.id,
       job.abort.signal,
+      (summary) => {
+        const now = Date.now();
+        if (now - lastProgress < 500) return;
+        lastProgress = now;
+        log(job, "INFO", `Prepare: ${summary.rowsRead.toLocaleString("en-US")} rows read, ${summary.rowsOut.toLocaleString("en-US")} out, ${summary.rowsRejected.toLocaleString("en-US")} rejected.`);
+        for (const step of summary.steps) if (step.rowsIn && reported.get(step.id) !== step.rowsOut) {
+          reported.set(step.id, step.rowsOut);
+          log(job, "INFO", `Prepare · ${step.name || step.type}: ${step.rowsIn.toLocaleString("en-US")} in, ${step.rowsOut.toLocaleString("en-US")} out, ${step.rowsRejected.toLocaleString("en-US")} rejected, ${step.removed.toLocaleString("en-US")} removed.`);
+        }
+      },
+      job.pipelineVersion,
     );
     checkCancelled(job);
+    const preparedSummary = getRun(job.run.id)?.prepareSummary;
+    if (preparedSummary) {
+      log(job, "SUCCESS", `Prepare completed: ${preparedSummary.rowsRead.toLocaleString("en-US")} read, ${preparedSummary.rowsOut.toLocaleString("en-US")} out, ${preparedSummary.rowsRejected.toLocaleString("en-US")} rejected.`);
+      for (const step of preparedSummary.steps) log(job, "INFO", `Prepare · ${step.name || step.type}: ${step.rowsIn.toLocaleString("en-US")} in, ${step.rowsOut.toLocaleString("en-US")} out, ${step.rowsRejected.toLocaleString("en-US")} rejected, ${step.removed.toLocaleString("en-US")} removed.`);
+    }
     log(
       job,
       "INFO",
-      "Cleaned CSV is ready. Connecting with SQL authentication.",
+      "Prepared CSV is ready. Connecting with SQL authentication.",
     );
     const transport = dependencies.createTransport(
       job.connection,
@@ -373,7 +400,7 @@ async function executeJob(
         ordinal >= 0 && ordinal < job.files.length
           ? job.files[ordinal].name
           : !job.transport
-            ? "01_staging.sql"
+            ? failure && typeof failure === "object" && "prepareFailure" in failure ? "Prepare" : "01_staging.sql"
             : null;
       const location = file
         ? `${file}${batch ? `, batch ${batch.batchNumber}` : ""}${details.line ? `, SQL line ${details.line}` : ""}: `
@@ -459,6 +486,7 @@ export async function startRun(
     dedupe: options.dedupe,
     db: connection.database,
   };
+  const pipelineVersion = readPipeline(projectId)?.version;
   let generation = await getGeneration(projectId, requested, {
     runId,
     filePath: paths.sqlPath,
@@ -494,6 +522,7 @@ export async function startRun(
   )
     throw new HttpError(500, "The generated execution file list is invalid.");
   const batches = generation.files.map((file) => splitSqlBatches(file.sql));
+  if (readPipeline(projectId)?.version !== pipelineVersion) throw new HttpError(409, "The preparation pipeline changed while generating these scripts. Generate its current version and try again.");
   const run = createQueuedRun(
     projectId,
     {
@@ -514,6 +543,7 @@ export async function startRun(
     cancelled: false,
     abort: new AbortController(),
     done: Promise.resolve(),
+    pipelineVersion,
   };
   jobs.set(run.id, job);
   log(

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "mainSourceId": "orders",
+  "options": { "memoryMb": 150, "maxMaterializedRows": 500000 },
+  "steps": [
+    { "id": "dedupe-orders", "name": "Keep the first order", "enabled": true, "type": "dedupe", "columns": ["Order ID"], "keep": "first" },
+    { "id": "quantity-types", "name": "Validate quantity and discount", "enabled": true, "type": "changeType", "columns": [{ "column": "Quantity", "type": "integer" }, { "column": "Discount", "type": "decimal" }], "onError": "reject" },
+    { "id": "order-dates", "name": "Normalize order dates", "enabled": true, "type": "changeType", "columns": [{ "column": "Order Date", "type": "date", "pattern": "yyyy-MM-dd" }], "onError": "reject" },
+    { "id": "valid-dates", "name": "Reject missing dates", "enabled": true, "type": "quality", "rules": [{ "id": "order-date-required", "name": "Order Date is required", "column": "Order Date", "kind": "notNull", "severity": "reject", "thresholdPct": 0 }] },
+    { "id": "join-customers", "name": "Look up customer attributes", "enabled": true, "type": "join", "sourceId": "customers", "kind": "left", "keys": [{ "left": "Customer ID", "right": "Customer ID" }], "columns": [{ "source": "Customer Name", "target": "Customer Name" }, { "source": "Segment", "target": "Segment" }, { "source": "Region", "target": "Region" }], "multiple": "first" },
+    { "id": "join-products", "name": "Look up product attributes", "enabled": true, "type": "join", "sourceId": "products", "kind": "left", "keys": [{ "left": "Product ID", "right": "Product ID" }], "columns": [{ "source": "Product", "target": "Product" }, { "source": "Category", "target": "Category" }, { "source": "Price", "target": "Price" }, { "source": "Cost", "target": "Cost" }], "multiple": "first" },
+    { "id": "clean-names", "name": "Normalize labels", "enabled": true, "type": "cleanText", "columns": ["Customer Name", "Segment", "Region", "Product", "Category"], "operations": ["trim", "collapse", "title"] },
+    { "id": "sales", "name": "Calculate Sales", "enabled": true, "type": "derive", "column": "Sales", "expression": "[Quantity] * [Price]", "onError": "reject" },
+    { "id": "profit", "name": "Calculate Profit", "enabled": true, "type": "derive", "column": "Profit", "expression": "ROUND([Sales] * (1 - [Discount]) - [Quantity] * [Cost], 2)", "onError": "reject" },
+    { "id": "warehouse-columns", "name": "Choose warehouse columns", "enabled": true, "type": "select", "columns": [{ "name": "Order ID" }, { "name": "Order Date" }, { "name": "Customer Name" }, { "name": "Segment" }, { "name": "Region" }, { "name": "Product" }, { "name": "Category" }, { "name": "Sales" }, { "name": "Quantity" }, { "name": "Discount" }, { "name": "Profit" }] }
+  ]
+}

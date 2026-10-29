@@ -9,11 +9,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: ProjectModelContext,
 ): Promise<Response> {
   try {
-    return await cleanedSourceResponse(await requireModelProject(context));
+    return await cleanedSourceResponse(await requireModelProject(context), { signal: request.signal });
   } catch (error) {
     return errorResponse(
       error,

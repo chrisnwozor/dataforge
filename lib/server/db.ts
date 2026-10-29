@@ -211,6 +211,57 @@ export function getDatabase(): DatabaseSync {
         next_run_at TEXT
       );
       CREATE INDEX IF NOT EXISTS report_schedules_due ON report_schedules(enabled, next_run_at);
+      CREATE TABLE IF NOT EXISTS project_sources (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('csv', 'xlsx', 'json')),
+        file_path TEXT NOT NULL,
+        options TEXT NOT NULL,
+        row_count INTEGER NOT NULL CHECK (row_count >= 0),
+        columns TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS project_sources_project_created ON project_sources(project_id, created_at, id);
+      CREATE TABLE IF NOT EXISTS project_pipelines (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL CHECK (version >= 1),
+        definition TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'idle',
+        progress TEXT,
+        error TEXT,
+        prepared_path TEXT,
+        profiled_version INTEGER,
+        quality_run_id TEXT,
+        profile_report TEXT,
+        missing_columns TEXT NOT NULL DEFAULT '{}'
+      );
+      CREATE TABLE IF NOT EXISTS pipeline_quality_runs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        pipeline_version INTEGER NOT NULL,
+        warehouse_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+        summary TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        error TEXT,
+        rejects_path TEXT,
+        owner_pid INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS pipeline_quality_runs_project_started ON pipeline_quality_runs(project_id, started_at DESC, id);
+      CREATE TABLE IF NOT EXISTS prepare_rejected_rows (
+        quality_run_id TEXT NOT NULL REFERENCES pipeline_quality_runs(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL CHECK (ordinal >= 0 AND ordinal < 100),
+        step_id TEXT NOT NULL,
+        step_name TEXT NOT NULL,
+        rule_name TEXT NOT NULL,
+        bucket TEXT,
+        source_row_number INTEGER NOT NULL,
+        raw_json TEXT NOT NULL,
+        PRIMARY KEY (quality_run_id, ordinal)
+      );
     `);
     // Serialize additive migrations across development workers opening the same file.
     database.exec("BEGIN IMMEDIATE");
@@ -259,6 +310,8 @@ export function getDatabase(): DatabaseSync {
       );
       if (!runColumns.has("owner_pid"))
         database.exec("ALTER TABLE runs ADD COLUMN owner_pid INTEGER");
+      if (!runColumns.has("prepare_summary"))
+        database.exec("ALTER TABLE runs ADD COLUMN prepare_summary TEXT");
       const hierarchyColumns = new Set(
         database
           .prepare("PRAGMA table_info(semantic_hierarchies)")
