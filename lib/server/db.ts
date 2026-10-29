@@ -8,7 +8,7 @@ const globalDatabases = globalThis as typeof globalThis & {
 
 /** The override keeps automated checks isolated from a developer's stored data. */
 export function dataDirectory(): string {
-  return resolve(process.env.DATAFORGE_DATA_DIR || join(process.cwd(), "data"));
+  return resolve(/* turbopackIgnore: true */ process.env.DATAFORGE_DATA_DIR || join(process.cwd(), "data"));
 }
 
 export function getDatabase(): DatabaseSync {
@@ -173,6 +173,44 @@ export function getDatabase(): DatabaseSync {
       );
       CREATE INDEX IF NOT EXISTS dashboards_project_updated
         ON dashboards(project_id, updated_at DESC, id);
+      CREATE TABLE IF NOT EXISTS reports (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        definition TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS reports_project_updated ON reports(project_id, updated_at DESC, id);
+      CREATE TABLE IF NOT EXISTS report_runs (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+        params TEXT NOT NULL,
+        row_count INTEGER NOT NULL DEFAULT 0 CHECK (row_count >= 0),
+        page_count INTEGER NOT NULL DEFAULT 0 CHECK (page_count >= 0),
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        error TEXT,
+        file_paths TEXT NOT NULL DEFAULT '{}',
+        owner_pid INTEGER,
+        trigger_type TEXT NOT NULL DEFAULT 'manual' CHECK (trigger_type IN ('manual', 'scheduled'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS report_runs_one_active ON report_runs(report_id) WHERE status IN ('queued', 'running');
+      CREATE INDEX IF NOT EXISTS report_runs_report_started ON report_runs(report_id, started_at DESC, id);
+      CREATE TABLE IF NOT EXISTS report_schedules (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+        cron TEXT NOT NULL,
+        timezone TEXT NOT NULL,
+        params TEXT NOT NULL,
+        formats TEXT NOT NULL,
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        last_run_at TEXT,
+        next_run_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS report_schedules_due ON report_schedules(enabled, next_run_at);
     `);
     // Serialize additive migrations across development workers opening the same file.
     database.exec("BEGIN IMMEDIATE");

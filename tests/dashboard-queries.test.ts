@@ -28,7 +28,7 @@ const view = (): ViewConfig => ({ ...createEmptyView(), viz: "bar", values: ["sa
 const chart = (id: string, config = view()): ChartTile => ({ ...base(id), type: "chart", source: { kind: "inline", config } });
 const result = (value = 10): QueryResult => ({ columns: [{ key: "m0", name: "sales", role: "measure", type: "number" }], rows: [{ m0: value }], rowCount: 1, truncated: false, elapsedMs: 12, fromCache: false, sql: "SELECT generated_only" });
 const response = (value = 10) => Response.json(result(value));
-const context = (tiles: DashboardTile[] = [kpi("one")], patch: Partial<DashboardQueryContext> = {}): DashboardQueryContext => ({ projectId: "project", model, lastSuccessfulRunId: "run-one", tiles, views: [], filters: [], visibleIds: tiles.map((tile) => tile.id), ...patch });
+const context = (tiles: DashboardTile[] = [kpi("one")], patch: Partial<DashboardQueryContext> = {}): DashboardQueryContext => ({ projectId: "project", model, lastSuccessfulRunId: "run-one", tiles, views: [], filters: [], visibleIds: tiles.map((tile) => tile.id), asOfDate: "2025-08-10", ...patch });
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 const body = (init: RequestInit) => JSON.parse(init.body as string) as SemanticQuery & { cache?: string };
 const flush = async () => { for (let index = 0; index < 60; index++) await Promise.resolve(); };
@@ -170,11 +170,79 @@ describe("lazy dashboard query orchestration", () => {
     first.resolve(response()); second.resolve(response()); await flush();
   });
 
-  it("builds a KPI and comparison as one ungrouped request with the applicable dashboard filters", async () => {
+  it("hides comparisons without a date dimension and keeps applicable dashboard filters on the main value", async () => {
     let sent: ReturnType<typeof body> | undefined;
     const controller = create(async (_url, init) => { sent = body(init); return response(); });
     controller.configure(context([{ ...kpi("one"), comparisonMeasure: "yoy" }], { filters: [{ attribute: region, op: "eq", value: "West" }] })); await vi.advanceTimersByTimeAsync(250);
-    expect(sent).toMatchObject({ measures: ["sales", "yoy"], rows: [], columns: [], filters: [{ attribute: region, op: "eq", value: "West" }] });
+    expect(sent).toMatchObject({ measures: ["sales"], rows: [], filters: [{ attribute: region, op: "eq", value: "West" }] });
+    expect(controller.getSnapshot().one.kpi?.comparison).toBeUndefined();
+  });
+
+  const date = { table: "date", column: "date:date" };
+  function datedModel(): SemanticModel {
+    return { ...model, date: { tableId: "date", dateColumnId: "date:date", keyColumnId: "date:key", factColumnId: "date_key" }, tables: [...model.tables, {
+      id: "date", name: "dim_date", schema: "dw", sqlName: "dim_date", kind: "dimension", keyColumnId: "date:key", columns: [
+        { id: "date:key", tableId: "date", name: "Date Key", sqlName: "DateKey", type: "number", role: "key" },
+        { id: "date:date", tableId: "date", name: "Date", sqlName: "Date", type: "date", role: "attribute" },
+      ],
+    }], relationships: [...model.relationships, { id: "date-link", fromTableId: "fact", fromColumnId: "date_key", toTableId: "date", toColumnId: "date:key", cardinality: "many-to-one" }], measures: model.measures.map((measure) => measure.id === "yoy" ? { ...measure, name: "Sales YoY %", expression: "DIVIDE([sales] - SAMEPERIODLASTYEAR([sales]), SAMEPERIODLASTYEAR([sales]))" } : measure) };
+  }
+  const latestResponse = () => Response.json({ ...result(), columns: [{ key: "a0", name: "Date", role: "attribute", type: "date" }], rows: [{ a0: "2025-08-10" }] });
+
+  it("queries all-time Sales separately from the complete 2024 vs 2023 YoY comparison", async () => {
+    const sent: SemanticQuery[] = [];
+    const controller = create(async (_url, init) => {
+      const query = body(init); sent.push(query);
+      return query.rows.length ? latestResponse() : response(query.measures[0] === "yoy" ? 0.1253 : 712530);
+    });
+    const filters: SemanticQuery["filters"] = [{ attribute: region, op: "eq", value: "West" }, { attribute: date, op: "gte", value: "2023-01-01" }];
+    controller.configure(context([{ ...kpi("one"), comparisonMeasure: "yoy" }], { model: datedModel(), filters }));
+    await vi.advanceTimersByTimeAsync(250);
+    expect(sent).toHaveLength(3);
+    expect(sent[0]).toMatchObject({ rows: [date], limit: 1, orderBy: [{ ref: date, dir: "desc" }], filters: [filters[0], { attribute: date, op: "isNotNull" }] });
+    expect(sent[1]).toMatchObject({ measures: ["sales"], rows: [], filters });
+    expect(sent[2]).toMatchObject({ measures: ["yoy"], rows: [], filters: [filters[0], { attribute: date, op: "gte", value: "2024-01-01" }, { attribute: date, op: "lte", value: "2024-12-31" }] });
+    expect(controller.getSnapshot().one).toMatchObject({ status: "success", result: { rows: [{ m0: 712530 }] }, kpi: { periodLabel: "All time", comparison: { label: "2024 vs 2023", measure: "yoy", result: { rows: [{ m0: 0.1253 }] } } } });
+  });
+
+  it.each([
+    ["latestYear", "2024-01-01", "2024-12-31", "2024"],
+    ["latestQuarter", "2025-04-01", "2025-06-30", "Q2 2025"],
+    ["latestMonth", "2025-07-01", "2025-07-31", "Jul 2025"],
+  ] as const)("scopes the main KPI to %s without changing a YoY comparison into a different interval", async (period, start, end, label) => {
+    const sent: SemanticQuery[] = [];
+    const controller = create(async (_url, init) => { const query = body(init); sent.push(query); return query.rows.length ? latestResponse() : response(); });
+    controller.configure(context([{ ...kpi("one"), period, comparisonMeasure: "yoy" }], { model: datedModel() }));
+    await vi.advanceTimersByTimeAsync(250);
+    expect(sent[1].filters).toEqual([{ attribute: date, op: "gte", value: start }, { attribute: date, op: "lte", value: end }]);
+    expect(controller.getSnapshot().one.kpi).toMatchObject({ periodLabel: label, comparison: { label: "2024 vs 2023" } });
+  });
+
+  it("reuses the fact-date watermark across visible KPIs but re-reads it after Refresh and new runs", async () => {
+    let bounds = 0;
+    const controller = create(async (_url, init) => { if (body(init).rows.length) { bounds++; return latestResponse(); } return response(); }, undefined, 1);
+    const tiles = [kpi("one"), kpi("two", 3)].map((tile) => ({ ...tile, comparisonMeasure: "yoy" }));
+    const start = context(tiles, { model: datedModel() });
+    controller.configure(start); await vi.advanceTimersByTimeAsync(250);
+    expect(bounds).toBe(1);
+    controller.configure({ ...start, refreshToken: 1 }); await vi.advanceTimersByTimeAsync(250);
+    expect(bounds).toBe(2);
+    controller.configure({ ...start, refreshToken: 1, lastSuccessfulRunId: "new-run" }); await vi.advanceTimersByTimeAsync(250);
+    expect(bounds).toBe(3);
+  });
+
+  it("cancels the period lookup and never sends a stale comparison after filters change", async () => {
+    const first = deferred<Response>(); const sent: { query: SemanticQuery; signal: AbortSignal }[] = [];
+    const controller = create(async (_url, init) => { const query = body(init); sent.push({ query, signal: init.signal as AbortSignal }); return sent.length === 1 ? first.promise : query.rows.length ? latestResponse() : response(); });
+    const start = context([{ ...kpi("one"), comparisonMeasure: "yoy" }], { model: datedModel() });
+    controller.configure(start); await vi.advanceTimersByTimeAsync(250);
+    controller.configure({ ...start, filters: [{ attribute: region, op: "eq", value: "West" }] });
+    expect(sent[0].signal.aborted).toBe(true);
+    first.resolve(latestResponse()); await flush();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(sent).toHaveLength(4);
+    expect(sent.slice(1).every(({ query }) => query.filters.some((filter) => filter.value === "West"))).toBe(true);
+    expect(controller.getSnapshot().one.status).toBe("success");
   });
 
   it("queries and deduplicates pivot totals at server grains rather than summing ratios", async () => {

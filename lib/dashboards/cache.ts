@@ -9,6 +9,7 @@ export interface TileCacheKeyInput {
   tile: DashboardTile;
   filters: readonly QueryFilter[];
   viewConfig?: ViewConfig | null;
+  asOfDate?: string;
 }
 
 /** Stable JSON without depending on server state or browser APIs. */
@@ -18,12 +19,12 @@ function stable(value: unknown): string {
   return `{${Object.entries(value).filter(([, entry]) => entry !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => `${JSON.stringify(key)}:${stable(entry)}`).join(",")}}`;
 }
 
-export function tileCacheKey({ projectId, modelVersion, lastSuccessfulRunId, tile, filters, viewConfig }: TileCacheKeyInput): string {
+export function tileCacheKey({ projectId, modelVersion, lastSuccessfulRunId, tile, filters, viewConfig, asOfDate }: TileCacheKeyInput): string {
   // Moving a tile changes its presentation, not the data it reads.
   const config = Object.fromEntries(Object.entries(tile).filter(([key]) => !["x", "y", "w", "h"].includes(key)));
   const normalizedFilters = filters.map((filter) => ({
     ...filter,
     ...(filter.values ? { values: [...filter.values].sort((a, b) => stable(a).localeCompare(stable(b))) } : {}),
   })).sort((a, b) => stable(a).localeCompare(stable(b)));
-  return `dashboard-tile-v1:${stable({ projectId, modelVersion, lastSuccessfulRunId, tile: config, viewConfig, filters: normalizedFilters })}`;
+  return `dashboard-tile-v2:${stable({ projectId, modelVersion, lastSuccessfulRunId, tile: config, viewConfig, filters: normalizedFilters, asOfDate })}`;
 }

@@ -158,7 +158,7 @@ export async function createProjectFromUpload(
   await mkdir(dirname(directory), { recursive: true });
   await mkdir(directory);
   try {
-    const filePath = join(directory, sourceFile);
+    const filePath = join(/* turbopackIgnore: true */ directory, sourceFile);
     await writeFile(filePath, new Uint8Array(await file.arrayBuffer()), {
       flag: "wx",
     });

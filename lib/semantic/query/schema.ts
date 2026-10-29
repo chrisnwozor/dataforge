@@ -72,17 +72,19 @@ export const semanticQuerySchema = z
       )
       .max(12)
       .default([]),
-    limit: z.number().int().min(1).max(50_000).default(1_000),
+    limit: z.number().int().min(1).max(100_000).default(1_000),
     topN: z
-      .object({ measure: reference, n: z.number().int().min(1).max(50_000) })
+      .object({ measure: reference, n: z.number().int().min(1).max(100_000) })
       .strict()
       .optional(),
     hideUnknown: z.boolean().default(true),
     diagnostics: z.boolean().default(false),
     cache: z.enum(["default", "bypass"]).optional(),
+    report: z.boolean().optional(),
   })
   .strict()
   .superRefine((query, ctx) => {
+    if (!query.report && (query.limit > 50_000 || (query.topN?.n ?? 0) > 50_000)) ctx.addIssue({ code: "custom", message: "Explore queries are limited to 50,000 rows." });
     if (query.rows.length + (query.columns?.length ?? 0) > 12)
       ctx.addIssue({
         code: "custom",
@@ -102,4 +104,5 @@ export const distinctValuesQuerySchema = z.object({
   limit: z.number().int().min(1).max(200).default(200),
   hideUnknown: z.boolean().default(true),
   cache: z.enum(["default", "bypass"]).optional(),
+  filters: z.array(queryFilterSchema).max(64).optional(),
 }).strict();

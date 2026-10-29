@@ -28,7 +28,11 @@ export const chartSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("inline"), config: viewConfigSchema }).strict(),
 ]);
 export const chartTileSchema = tileBase.extend({ type: z.literal("chart"), source: chartSourceSchema });
-export const kpiTileSchema = tileBase.extend({ type: z.literal("kpi"), measure: reference, comparisonMeasure: reference.optional() });
+export const kpiTileSchema = tileBase.extend({
+  type: z.literal("kpi"), measure: reference, comparisonMeasure: reference.optional(),
+  // Optional for compatibility with saved version-1 dashboards. Missing means all time.
+  period: z.enum(["all", "latestYear", "latestQuarter", "latestMonth"]).optional(),
+});
 export const textTileSchema = tileBase.extend({ type: z.literal("text"), content: z.string().max(20_000) });
 export const slicerTileSchema = tileBase.extend({ type: z.literal("slicer"), attribute: attributeRefSchema });
 export const dashboardTileSchema = z.discriminatedUnion("type", [chartTileSchema, kpiTileSchema, textTileSchema, slicerTileSchema]);

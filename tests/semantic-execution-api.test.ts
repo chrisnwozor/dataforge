@@ -250,6 +250,26 @@ describe("semantic execution and query endpoints", () => {
     expect((await POST(dashboardRequest, context)).status).toBe(200);
   });
 
+  it("binds cascading parameter filters on POST values and keeps parent selections in the cache key", async () => {
+    const input = { kind: "values", attribute: { table: "region", column: "region:name" }, filters: [{ attribute: { table: "region", column: "region:name" }, op: "eq", value: "East'; DROP TABLE dw.fact_sales;--" }] };
+    expect((await POST(request(input), context)).status).toBe(200);
+    expect(state.calls[0].sql).not.toContain("DROP TABLE");
+    expect(state.calls[0].params.some((parameter) => parameter.value === input.filters[0].value)).toBe(true);
+    expect((await POST(request({ ...input, filters: [{ ...input.filters[0], value: "West" }] }), context)).status).toBe(200);
+    expect(state.calls).toHaveLength(2);
+  });
+
+  it("allows the report export row budget only under a report-purpose request", async () => {
+    const input = { measures: ["sales"], limit: 100_000, report: true };
+    expect((await POST(request(input), context)).status).toBe(400);
+    const reportRequest = request(input); reportRequest.headers.set("X-DataForge-Query-Purpose", "reportScheduled");
+    expect((await POST(reportRequest, context)).status).toBe(200);
+    expect(state.calls[0].limit).toBe(100_000);
+    expect(state.calls[0].params.find((parameter) => parameter.name === "__df_limit")).toMatchObject({ value: 100_001, type: "number" });
+    const excessive = request({ ...input, limit: 100_001 }); excessive.headers.set("X-DataForge-Query-Purpose", "report");
+    expect((await POST(excessive, context)).status).toBe(400);
+  });
+
   it("runs diagnostics live without reading or replacing a normal cached result", async () => {
     const input = { measures: ["sales"], rows: [] };
     const ordinary = await runSemanticQuery(projectId, input);

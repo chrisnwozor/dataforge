@@ -75,6 +75,15 @@ export function shortenLabel(label: string, maximum = 18): string {
   return label.length > maximum ? `${label.slice(0, Math.max(1, maximum - 1))}…` : label;
 }
 
+/** Bound axis labels to their actual slot; full labels remain in SVG titles and mark tooltips. */
+export function fitAxisLabel(label: string, width: number, fontSize = 10): string {
+  // A conservative glyph budget avoids overlapping ticks without DOM text measurements.
+  const budget = Math.max(1, Math.floor(Math.max(0, width) / (fontSize * 0.62)));
+  const characters = Array.from(label);
+  if (characters.length <= budget) return label;
+  return budget === 1 ? "…" : `${characters.slice(0, budget - 1).join("")}…`;
+}
+
 export function donutArc(start: number, end: number, outer = 105, inner = 65): string {
   // A complete circle needs two SVG arcs; use the same path construction for every slice.
   const span = Math.min(Math.PI * 2 - 0.000001, Math.max(0, end - start));

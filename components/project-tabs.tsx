@@ -10,6 +10,7 @@ import {
   Sigma,
   ChartNoAxesCombined,
   PanelsTopLeft,
+  FileBarChart2,
 } from "lucide-react";
 const tabs = [
   { label: "Overview", path: "", Icon: LayoutDashboard },
@@ -18,6 +19,7 @@ const tabs = [
   { label: "Measures", path: "/measures", Icon: Sigma },
   { label: "Explore", path: "/explore", Icon: ChartNoAxesCombined },
   { label: "Dashboards", path: "/dashboards", Icon: PanelsTopLeft },
+  { label: "Reports", path: "/reports", Icon: FileBarChart2 },
   { label: "Generate", path: "/generate", Icon: Terminal },
   { label: "Runs", path: "/runs", Icon: History },
 ];

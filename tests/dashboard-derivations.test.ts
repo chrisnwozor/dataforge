@@ -37,6 +37,7 @@ describe("metadata-only starter dashboards", () => {
     }
     const bars = result.layout.tiles.filter((tile) => tile.type === "chart" && tile.id.startsWith("starter-bar"));
     expect(bars).toHaveLength(3);
+    expect(bars.every((tile) => tile.h === trend.h)).toBe(true);
     expect(bars.map((tile) => tile.title)).toEqual(["Sales by Segment", "Sales by Category", "Sales by Region"]);
     for (const tile of bars) if (tile.type === "chart" && tile.source.kind === "inline") {
       const ref = tile.source.config.rows[0];

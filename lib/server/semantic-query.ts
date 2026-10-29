@@ -13,6 +13,7 @@ import type {
   AttributeRef,
   CompiledQuery,
   QueryResult,
+  QueryFilter,
   QueryValue,
 } from "@/lib/semantic/query/types";
 import type { SemanticModel } from "@/lib/semantic/types";
@@ -285,7 +286,7 @@ export async function runSemanticQuery(
   input: unknown,
   signal?: AbortSignal,
   timing: QueryTimingContext = startQueryTiming(),
-  options: { priority?: "main" | "totals" | "dashboard" } = {},
+  options: { priority?: "main" | "totals" | "dashboard" | "report" | "reportScheduled" } = {},
 ): Promise<QueryResult> {
   let normalized;
   const parseStart = performance.now();
@@ -363,7 +364,7 @@ export async function getDistinctValues(
   signal?: AbortSignal,
   hideUnknown = true,
   timing: QueryTimingContext = startQueryTiming(),
-  options: { search?: string; limit?: number; priority?: "values" | "prefetch"; cache?: "default" | "bypass" } = {},
+  options: { search?: string; limit?: number; priority?: "values" | "prefetch"; cache?: "default" | "bypass"; filters?: QueryFilter[] } = {},
 ): Promise<QueryResult> {
   const revision = queryScheduler.getRevision(projectId);
   const search = options.search?.trim() ?? "";
@@ -378,13 +379,14 @@ export async function getDistinctValues(
       hideUnknown,
       search,
       limit,
+      ...(options.filters?.length ? { filters: options.filters } : {}),
     }),
     (model) =>
       compileDistinctValues(
         model,
         resolveValueAttribute(model, attribute),
         hideUnknown,
-        { search, limit },
+        { search, limit, filters: options.filters },
       ),
     signal,
     timing,
