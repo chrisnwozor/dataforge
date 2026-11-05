@@ -35,4 +35,12 @@ These legacy service settings have no role in the consulting website. Do not del
 
 ## Checkpoint verification
 
-Pending the normal checkpoint branch and tag push, before any obsolete code is removed.
+Verified normal push before removals:
+
+```text
+archive/dataforge-app-pre-redesign -> 5caf00f5556f3f6e85dc07612db9a439c2d7460a
+pre-redesign-checkpoint (annotated tag) -> 06940d07c58074140e8840e9863131c12c43c2f9
+working branch: redesign/consulting-site
+```
+
+The tag resolves to the checkpoint commit `5caf00f`. Both the branch and tag are present on origin.
