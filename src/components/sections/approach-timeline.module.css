@@ -1,0 +1,193 @@
+.timeline {
+  --timeline-progress: 0;
+  position: relative;
+  list-style: none;
+  padding: 0 0 0 80px;
+  margin: 0;
+}
+
+.stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rail {
+  position: absolute;
+  left: 0;
+  top: 27px;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+}
+
+.rail svg {
+  width: 24px;
+  height: 100%;
+  overflow: visible;
+}
+.track {
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+}
+.progress {
+  position: absolute;
+  left: 11.25px;
+  top: 0;
+  width: 1.5px;
+  height: calc(var(--timeline-progress) * 100%);
+  background: var(--accent);
+  transition: height 180ms linear;
+}
+
+.stage {
+  position: relative;
+  padding: 0 0 88px;
+}
+.stage:not(:last-child) {
+  margin-bottom: 80px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.stage:last-child {
+  padding-bottom: 0;
+}
+.marker {
+  position: absolute;
+  left: -74px;
+  top: 20px;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--text-secondary);
+  background: var(--background);
+  border-radius: 50%;
+}
+.stageHeading {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: baseline;
+  column-gap: 24px;
+}
+.number {
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+.stage h2 {
+  font-family: var(--font-display), serif;
+  font-size: clamp(2.15rem, 3.6vw, 3.5rem);
+  font-weight: 400;
+  line-height: 1.14;
+  letter-spacing: -0.035em;
+  max-width: 740px;
+  margin: 0;
+}
+.purpose {
+  margin: 24px 0 40px 80px;
+  font-size: clamp(1.125rem, 1.7vw, 1.375rem);
+  line-height: 1.6;
+  max-width: 710px;
+  color: var(--text-secondary);
+}
+.details {
+  margin: 0 0 0 80px;
+  display: grid;
+  grid-template-columns: 1.12fr 1fr 1fr;
+  gap: 32px;
+}
+.details div {
+  min-width: 0;
+}
+.details dt {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono), monospace;
+  line-height: 1.6;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.details dd {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 1000px) {
+  .timeline {
+    padding-left: 56px;
+  }
+  .marker {
+    left: -50px;
+  }
+  .stageHeading {
+    grid-template-columns: 36px 1fr;
+    column-gap: 16px;
+  }
+  .purpose,
+  .details {
+    margin-left: 52px;
+  }
+  .details {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    max-width: 650px;
+  }
+  .details div {
+    display: grid;
+    grid-template-columns: 136px 1fr;
+    gap: 24px;
+  }
+}
+
+@media (max-width: 600px) {
+  .timeline {
+    padding-left: 34px;
+  }
+  .rail {
+    left: -6px;
+    top: 19px;
+  }
+  .marker {
+    left: -34px;
+    top: 14px;
+  }
+  .stageHeading {
+    display: block;
+  }
+  .number {
+    display: block;
+    margin-bottom: 16px;
+  }
+  .stage h2 {
+    font-size: clamp(2rem, 8vw, 2.75rem);
+  }
+  .stage {
+    padding-bottom: 48px;
+  }
+  .stage:not(:last-child) {
+    margin-bottom: 48px;
+  }
+  .purpose {
+    font-size: 18px;
+    margin: 24px 0 32px;
+  }
+  .details {
+    margin-left: 0;
+    gap: 28px;
+  }
+  .details div {
+    display: block;
+  }
+  .details dt {
+    margin-bottom: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress {
+    transition: none;
+    height: 100%;
+  }
+}

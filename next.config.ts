@@ -1,21 +1,23 @@
 import type { NextConfig } from "next";
-
+import { staticSecurityHeaders } from "./src/lib/security-headers";
 const config: NextConfig = {
-  async headers() {
-    return [{ source: "/:path*", headers: [
-      {key: "X-Content-Type-Options", value: "nosniff"},
-      {key: "X-Frame-Options", value: "DENY"},
-      {key: "Referrer-Policy", value: "no-referrer"},
-    ] }];
-  },
-  // PDF exports embed the existing Geist fonts through a runtime file read.
+  poweredByHeader: false,
+  allowedDevOrigins: ["localhost", "127.0.0.1"],
   outputFileTracingIncludes: {
-    "/*": [
-      "./node_modules/geist/dist/fonts/geist-sans/Geist-Regular.ttf",
-      "./node_modules/geist/dist/fonts/geist-sans/Geist-Bold.ttf",
-      "./lib/prepare/regex-worker.js",
-    ],
+    "/opengraph-image": ["./src/app/fonts/InstrumentSerif-Regular.ttf"],
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          ...staticSecurityHeaders,
+          ...(process.env.NODE_ENV === "production"
+            ? [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]
+            : []),
+        ],
+      },
+    ];
   },
 };
-
 export default config;

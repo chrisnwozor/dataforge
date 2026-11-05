@@ -3,8 +3,6 @@ on: [push, pull_request]
 jobs:
   checks:
     runs-on: ubuntu-latest
-    env:
-      DATAFORGE_AUTH: "off"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -15,6 +13,7 @@ jobs:
           node-version: "22.13.0"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
