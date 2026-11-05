@@ -1,6 +1,14 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useId,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { architectureStages, bankflow, type ArchitectureStageId } from "@/content/bankflow";
 import { BankFlowPreview } from "./BankFlowPreview";
 import styles from "./bankflow.module.css";
@@ -16,8 +24,33 @@ type StageProps = {
   children: ReactNode;
 };
 
+function visibleLabel(children: ReactNode): string {
+  return Children.toArray(children)
+    .map((child) =>
+      typeof child === "string" || typeof child === "number"
+        ? String(child)
+        : isValidElement<{ children?: ReactNode }>(child)
+          ? visibleLabel(child.props.children)
+          : "",
+    )
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function withSvgWordBoundaries(children: ReactNode): ReactNode {
+  return Children.map(children, (child) => {
+    if (!isValidElement<{ children?: ReactNode }>(child)) return child;
+    const nested = withSvgWordBoundaries(child.props.children);
+    // SVG text/tspan lines do not create a text-content word boundary by
+    // themselves. Explicit whitespace keeps visible text and spoken names equal.
+    return child.type === "text" || child.type === "tspan"
+      ? cloneElement(child, undefined, nested, " ")
+      : cloneElement(child, undefined, nested);
+  });
+}
+
 function Stage({ id, x, y, width, height, active, select, children }: StageProps) {
-  const stage = architectureStages.find((item) => item.id === id)!;
   function onKeyDown(event: KeyboardEvent<SVGGElement>) {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -29,7 +62,7 @@ function Stage({ id, x, y, width, height, active, select, children }: StageProps
       className={styles.stage}
       role="button"
       tabIndex={0}
-      aria-label={`${stage.label}: ${stage.detail}`}
+      aria-label={visibleLabel(children)}
       aria-pressed={active === id}
       data-active={active === id}
       onMouseEnter={() => select(id)}
@@ -38,7 +71,7 @@ function Stage({ id, x, y, width, height, active, select, children }: StageProps
       onKeyDown={onKeyDown}
     >
       <rect x={x} y={y} width={width} height={height} />
-      {children}
+      {withSvgWordBoundaries(children)}
     </g>
   );
 }

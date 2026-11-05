@@ -102,7 +102,7 @@ export class ContactConfigurationError extends Error {
 
 const developmentSecret = randomBytes(32).toString("hex");
 
-/** Validated only when the contact endpoint is used; unrelated pages remain available. */
+/** Validated for contact readiness and endpoint use; unrelated pages remain available. */
 export function getContactEnvironment(source: NodeJS.ProcessEnv = process.env) {
   const result = environmentSchema.safeParse(source);
   if (!result.success) {

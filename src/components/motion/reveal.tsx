@@ -23,7 +23,7 @@ export function Reveal({ children, className, delay = 0, duration = 0.6 }: Revea
       ([entry]) => {
         if (!entry.isIntersecting) return;
         observer.disconnect();
-        void import("motion").then(({ animate }) => {
+        void import("motion/mini").then(({ animate }) => {
           if (disposed || preference.matches) return;
           const animation = animate(
             element,
