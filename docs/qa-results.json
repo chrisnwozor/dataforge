@@ -1,0 +1,183 @@
+{
+  "site": "DataForge consulting website",
+  "lighthouseVersion": "13.6.0",
+  "browser": "Chromium 154.0.8037.57",
+  "testedRuntimes": ["Node 24.19.0", "Node 22.13.0"],
+  "unitTests": {
+    "files": 10,
+    "passed": 121
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "coreCases": 45,
+      "supplements": 0,
+      "states": 3,
+      "linkPairs": 0,
+      "failures": [
+        "State verification: page.waitForFunction: Timeout 30000ms exceeded.\n    at /workspace/dataforge/scripts/site-qa.mjs:234:14"
+      ],
+      "axeViolations": 0
+    },
+    {
+      "round": 2,
+      "coreCases": 45,
+      "supplements": 0,
+      "states": 11,
+      "linkPairs": 107,
+      "failures": [],
+      "axeViolations": 0
+    },
+    {
+      "round": 3,
+      "coreCases": 45,
+      "supplements": 27,
+      "states": 7,
+      "linkPairs": 107,
+      "failures": [],
+      "axeViolations": 0
+    },
+    {
+      "round": 4,
+      "coreCases": 45,
+      "supplements": 27,
+      "states": 7,
+      "linkPairs": 107,
+      "failures": [],
+      "axeViolations": 0
+    }
+  ],
+  "lighthouse": [
+    {
+      "route": "home",
+      "mode": "mobile",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "lcpMs": 1080,
+      "blockingMs": 52,
+      "cls": 0,
+      "scriptTransferBytes": 153520,
+      "visibleLabelAuditPass": true
+    },
+    {
+      "route": "home",
+      "mode": "desktop",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "lcpMs": 301,
+      "blockingMs": 0,
+      "cls": 0,
+      "scriptTransferBytes": 153520,
+      "visibleLabelAuditPass": true
+    },
+    {
+      "route": "services",
+      "mode": "mobile",
+      "scores": {
+        "performance": 98,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "lcpMs": 1069,
+      "blockingMs": 151,
+      "cls": 0,
+      "scriptTransferBytes": 148120,
+      "visibleLabelAuditPass": true
+    },
+    {
+      "route": "services",
+      "mode": "desktop",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "lcpMs": 301,
+      "blockingMs": 0,
+      "cls": 0,
+      "scriptTransferBytes": 148120,
+      "visibleLabelAuditPass": true
+    },
+    {
+      "route": "work-bankflow",
+      "mode": "mobile",
+      "scores": {
+        "performance": 99,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "lcpMs": 914,
+      "blockingMs": 134,
+      "cls": 0,
+      "scriptTransferBytes": 162522,
+      "visibleLabelAuditPass": true
+    },
+    {
+      "route": "work-bankflow",
+      "mode": "desktop",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "lcpMs": 256,
+      "blockingMs": 0,
+      "cls": 0,
+      "scriptTransferBytes": 162522,
+      "visibleLabelAuditPass": true
+    },
+    {
+      "route": "contact",
+      "mode": "mobile",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "lcpMs": 920,
+      "blockingMs": 55,
+      "cls": 0,
+      "scriptTransferBytes": 199076,
+      "visibleLabelAuditPass": true
+    },
+    {
+      "route": "contact",
+      "mode": "desktop",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "lcpMs": 257,
+      "blockingMs": 0,
+      "cls": 0,
+      "scriptTransferBytes": 199076,
+      "visibleLabelAuditPass": true
+    }
+  ],
+  "dependencyAudit": {
+    "productionVulnerabilities": 0,
+    "developmentModerate": 1
+  },
+  "ownerDependent": [
+    "Public HTTPS origin",
+    "Live Resend, Upstash and optional Turnstile credentials",
+    "Genuine BankFlow screenshots",
+    "Exact seven Gold table names",
+    "Optional real team credentials/social profiles"
+  ]
+}
