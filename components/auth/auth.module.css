@@ -13,14 +13,14 @@
   background: var(--surface);
 }
 .authCard h1 {
-  font-size: 28px;
+  font-size: 1.75rem;
   letter-spacing: -1px;
   margin: 12px 0;
 }
 .muted {
   color: var(--muted);
   line-height: 1.6;
-  font-size: 13px;
+  font-size: var(--type-body);
 }
 .form {
   display: grid;
@@ -31,7 +31,7 @@
 .field {
   display: grid;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 500;
 }
 .form input,
@@ -42,7 +42,7 @@
 }
 .form small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 400;
 }
 .links {
@@ -50,7 +50,7 @@
   gap: 20px;
   flex-wrap: wrap;
   margin-top: 24px;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .links a {
   text-decoration: underline;
@@ -58,12 +58,12 @@
 }
 .error {
   color: var(--red);
-  font-size: 13px;
+  font-size: var(--type-body);
   line-height: 1.6;
 }
 .success {
   color: var(--green);
-  font-size: 13px;
+  font-size: var(--type-body);
   line-height: 1.6;
 }
 .section {
@@ -75,11 +75,11 @@
   min-width: 0;
 }
 .section h2 {
-  font-size: 17px;
+  font-size: 1.0625rem;
   margin: 0 0 8px;
 }
 .section h3 {
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .grid {
   display: grid;
@@ -127,7 +127,7 @@
 .table {
   border-collapse: collapse;
   width: 100%;
-  font-size: 12px;
+  font-size: var(--type-caption);
   text-align: left;
 }
 .table th,
@@ -144,7 +144,7 @@
   display: grid;
   grid-template-columns: 100px 1fr;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.6;
 }
 .legend dt {
@@ -168,7 +168,7 @@
 .section button:focus-visible,
 .section select:focus-visible,
 .authCard input:focus-visible {
-  outline: 1px solid #a3a3a3;
+  outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
 .section select {
@@ -184,7 +184,7 @@
 .navLinks {
   display: flex;
   gap: 14px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   align-items: center;
 }
 .navLinks a {

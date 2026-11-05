@@ -40,6 +40,7 @@ import type {
   QueryTimings,
   QueryValue,
 } from "@/lib/semantic/query/types";
+import { formatAttribute, formatMeasure } from "@/lib/explore/format";
 import { Button } from "./ui/button";
 import { SelectMenu } from "./select-menu";
 import styles from "./measures-workspace.module.css";
@@ -110,24 +111,7 @@ function newMeasure(): SemanticMeasure {
 }
 
 function displayValue(value: QueryValue, format?: MeasureFormat): string {
-  if (value === null) return "—";
-  if (typeof value === "number") {
-    if (format === "currency")
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-      }).format(value);
-    if (format === "percent")
-      return new Intl.NumberFormat("en-US", {
-        style: "percent",
-        maximumFractionDigits: 2,
-      }).format(value);
-    return new Intl.NumberFormat("en-US", {
-      maximumFractionDigits: format === "decimals" ? 2 : 4,
-      ...(format === "decimals" ? { minimumFractionDigits: 2 } : {}),
-    }).format(value);
-  }
-  return typeof value === "boolean" ? (value ? "True" : "False") : value;
+  return formatMeasure(value, format ?? "number");
 }
 
 export function MeasuresWorkspace({ projectId }: { projectId: string }) {
@@ -892,7 +876,13 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                 <>
                   <div className={styles.testValue} role="status">
                     <span>{draft.name}</span>
-                    <strong>
+                    <strong
+                      title={
+                        testResult.rows[0]?.[testResult.columns[0]?.key] == null
+                          ? "No value (NULL or empty)"
+                          : undefined
+                      }
+                    >
                       {displayValue(
                         testResult.rows[0]?.[testResult.columns[0]?.key] ??
                           null,
@@ -1143,6 +1133,7 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
             </div>
             <div
               className={styles.tableScroll}
+              role="region"
               tabIndex={0}
               aria-label="Query results"
             >
@@ -1160,15 +1151,22 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                   {queryResult.rows.slice(0, 1000).map((row, index) => (
                     <tr key={index}>
                       {queryResult.columns.map((column) => (
-                        <td key={column.key}>
-                          {displayValue(
-                            row[column.key] ?? null,
-                            column.role === "measure"
-                              ? model.measures.find(
+                        <td
+                          key={column.key}
+                          title={
+                            row[column.key] == null || row[column.key] === ""
+                              ? "No value (NULL or empty)"
+                              : undefined
+                          }
+                        >
+                          {column.role === "measure"
+                            ? displayValue(
+                                row[column.key] ?? null,
+                                model.measures.find(
                                   (measure) => measure.name === column.name,
-                                )?.format
-                              : undefined,
-                          )}
+                                )?.format,
+                              )
+                            : formatAttribute(row[column.key], column)}
                         </td>
                       ))}
                     </tr>
@@ -1176,7 +1174,10 @@ export function MeasuresWorkspace({ projectId }: { projectId: string }) {
                 </tbody>
               </table>
               {!queryResult.rows.length && (
-                <p className={styles.emptyList}>No rows matched this query.</p>
+                <p className={styles.emptyList}>
+                  No rows matched this query. Clear an attribute filter or
+                  choose a different measure, then run the query again.
+                </p>
               )}
             </div>
             <SqlPreview

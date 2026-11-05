@@ -176,10 +176,14 @@ export function NewProjectForm() {
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  fontSize: 12,
+                  fontSize: "var(--type-body, .875rem)",
+                  flexWrap: "wrap",
+                  gap: ".5rem",
                 }}
               >
-                <span>{file.name}</span>
+                <span title={file.name} style={{ overflowWrap: "anywhere" }}>
+                  {file.name}
+                </span>
                 <span className="muted mono">
                   {(file.size / 1024).toFixed(1)} KB
                 </span>

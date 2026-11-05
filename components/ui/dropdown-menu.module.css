@@ -8,17 +8,19 @@
   border-radius: 7px;
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--type-body, 0.875rem);
+  max-width: min(32rem, calc(100vw - 1rem));
 }
 .item {
   position: relative;
   display: flex;
   align-items: center;
-  min-height: 33px;
+  min-height: 2.5rem;
   padding: 7px 30px 7px 10px;
   border-radius: 4px;
   cursor: pointer;
   user-select: none;
+  overflow-wrap: anywhere;
 }
 .item[data-highlighted] {
   background: var(--hover);
@@ -40,14 +42,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 36px;
+  min-height: 2.5rem;
   padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
   color: var(--text);
-  font-size: 11px;
-  white-space: nowrap;
+  font-size: var(--type-body, 0.875rem);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .trigger:hover,
 .trigger[data-state="open"] {
@@ -57,7 +60,7 @@
   color: var(--muted);
 }
 .workspaceTrigger {
-  min-height: 32px;
+  min-height: 2.5rem;
   padding: 0;
   border: 0;
   background: transparent;
@@ -66,7 +69,8 @@
 .workspaceName {
   width: 150px;
   text-align: left;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 @media (max-width: 760px) {
   .workspaceTrigger {

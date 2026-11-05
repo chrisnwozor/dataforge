@@ -13,6 +13,21 @@ import type { ColumnProfile, ColumnType } from "@/lib/types";
 import { DataTable, EmptyState } from "./shared";
 import { Button } from "./ui/button";
 import { number } from "@/lib/utils";
+import { formatMeasure, isIdentifierName } from "@/lib/explore/format";
+
+function profileExtreme(value: string, column: ColumnProfile): string {
+  if (!value || value === "—") return "—";
+  if (
+    (column.type === "INT" || column.type === "DECIMAL") &&
+    !isIdentifierName(column.name) &&
+    /^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value)
+  )
+    return formatMeasure(
+      value,
+      column.type === "DECIMAL" ? "decimals" : "number",
+    );
+  return value;
+}
 type SortKey =
   "name" | "type" | "nullPercent" | "distinct" | "duplicates" | "min" | "max";
 const apiTypes = {
@@ -133,7 +148,7 @@ export function ProfileTable({
             aria-label="Filter columns"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            style={{ fontSize: 11, height: 36 }}
+            style={{ fontSize: "var(--type-body, .875rem)", height: 36 }}
           >
             <option value="all">All columns</option>
             <option value="keys">Key candidates</option>
@@ -208,7 +223,9 @@ export function ProfileTable({
           <tbody>
             {visible.map((c) => (
               <tr key={c.id}>
-                <td className="mono">{c.name}</td>
+                <td className="mono" title={c.name}>
+                  {c.name}
+                </td>
                 <td>
                   <select
                     className="type-select"
@@ -236,7 +253,7 @@ export function ProfileTable({
                 </td>
                 <td>
                   <div className="null-cell mono">
-                    <span style={{ minWidth: 30 }}>{c.nullPercent}%</span>
+                    <span>{formatMeasure(c.nullPercent / 100, "percent")}</span>
                     <div className="null-bar">
                       <span
                         style={{
@@ -249,8 +266,22 @@ export function ProfileTable({
                 </td>
                 <td className="mono">{number(c.distinct)}</td>
                 <td className="mono muted">{number(c.duplicates)}</td>
-                <td className="mono muted small">{c.min}</td>
-                <td className="mono muted small">{c.max}</td>
+                <td
+                  className="mono muted"
+                  title={
+                    !c.min || c.min === "—" ? "No value (NULL or empty)" : c.min
+                  }
+                >
+                  {profileExtreme(c.min, c)}
+                </td>
+                <td
+                  className="mono muted"
+                  title={
+                    !c.max || c.max === "—" ? "No value (NULL or empty)" : c.max
+                  }
+                >
+                  {profileExtreme(c.max, c)}
+                </td>
                 <td>
                   {c.keyCandidate || c.nearKeyCandidate ? (
                     <span

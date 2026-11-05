@@ -61,7 +61,12 @@ export function StatCard({
         {label}
         {icon || <Database size={15} />}
       </div>
-      <div className="stat-value mono">{value}</div>
+      <div
+        className="stat-value mono"
+        title={value === "—" ? "No value (NULL or unavailable)" : value}
+      >
+        {value}
+      </div>
       <div className="stat-detail">{detail}</div>
     </div>
   );

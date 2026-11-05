@@ -16,11 +16,13 @@ export function Button({
   className,
   variant,
   size,
+  title,
   ...props
 }: React.ComponentProps<"button"> & VariantProps<typeof buttonVariants>) {
   return (
     <button
       className={cn(buttonVariants({ variant, size, className }))}
+      title={title ?? props["aria-label"]}
       {...props}
     />
   );

@@ -22,6 +22,8 @@ export interface ExploreChartProps {
   horizontal?: boolean;
   stacked?: boolean;
   showLegend?: boolean;
+  /** Presentation only; viewers may toggle labels locally without changing a saved query. */
+  showValueLabels?: boolean;
   colors?: string[];
   onMemberClick?: (datum: ChartDatum) => void;
 }

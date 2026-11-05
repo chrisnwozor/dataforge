@@ -76,12 +76,45 @@ export function shortenLabel(label: string, maximum = 18): string {
 }
 
 /** Bound axis labels to their actual slot; full labels remain in SVG titles and mark tooltips. */
-export function fitAxisLabel(label: string, width: number, fontSize = 10): string {
+export function fitAxisLabel(label: string, width: number, fontSize = 12): string {
   // A conservative glyph budget avoids overlapping ticks without DOM text measurements.
   const budget = Math.max(1, Math.floor(Math.max(0, width) / (fontSize * 0.62)));
   const characters = Array.from(label);
   if (characters.length <= budget) return label;
   return budget === 1 ? "…" : `${characters.slice(0, budget - 1).join("")}…`;
+}
+
+/** Wrap words before truncating; the complete category is always provided separately in a title. */
+export function wrapAxisLabel(label: string, width: number, fontSize = 12, maximumLines = 2): string[] {
+  const budget = Math.max(1, Math.floor(Math.max(0, width) / (fontSize * 0.62)));
+  const words = label.trim().split(/\s+/);
+  const lines: string[] = [];
+  const limit = Math.max(1, maximumLines);
+  let current = "";
+  for (const [index, word] of words.entries()) {
+    const next = current ? `${current} ${word}` : word;
+    if (Array.from(next).length <= budget) { current = next; continue; }
+    if (lines.length >= limit - 1)
+      return [...lines, fitAxisLabel([next, ...words.slice(index + 1)].join(" "), width, fontSize)];
+    if (current) { lines.push(current); current = word; }
+    else { lines.push(fitAxisLabel(word, width, fontSize)); current = ""; }
+  }
+  if (current) lines.push(fitAxisLabel(current, width, fontSize));
+  return lines.slice(0, limit);
+}
+
+/** Shape and dash cues keep series distinguishable without relying on hue. */
+export function seriesDash(index: number): string {
+  return ["", "8 4", "3 3", "10 3 2 3"][index % 4];
+}
+
+export function seriesMarker(index: number, x: number, y: number, radius = 4): string {
+  switch (index % 4) {
+    case 1: return `M${x - radius},${y - radius} h${2 * radius} v${2 * radius} h${-2 * radius} Z`;
+    case 2: return `M${x},${y - radius - 1} L${x + radius + 1},${y + radius} L${x - radius - 1},${y + radius} Z`;
+    case 3: return `M${x},${y - radius - 1} L${x + radius + 1},${y} L${x},${y + radius + 1} L${x - radius - 1},${y} Z`;
+    default: return `M${x - radius},${y} a${radius},${radius} 0 1,0 ${radius * 2},0 a${radius},${radius} 0 1,0 ${-radius * 2},0`;
+  }
 }
 
 export function donutArc(start: number, end: number, outer = 105, inner = 65): string {

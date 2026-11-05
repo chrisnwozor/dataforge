@@ -40,8 +40,14 @@ export function SelectMenu({
           type="button"
           disabled={disabled}
           className={styles.trigger}
-          style={style}
+          style={{
+            ...style,
+            fontSize: "var(--type-body, .875rem)",
+            minHeight: "2.5rem",
+            height: "auto",
+          }}
           aria-label={`${label}: ${selectedLabel}`}
+          title={selectedLabel}
         >
           {selectedLabel}
           <ChevronDown size={12} aria-hidden="true" />

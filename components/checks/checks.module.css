@@ -1,5 +1,5 @@
 .shell {
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.6;
   min-width: 0;
 }
@@ -9,13 +9,13 @@
   flex-wrap: wrap;
 }
 .shell :global(.page-heading p) {
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .shell :global(.eyebrow) {
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .root {
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.6;
   min-width: 0;
 }
@@ -28,20 +28,20 @@
 .root a,
 .overviewCard button,
 .overviewCard a {
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .root h2 {
-  font-size: 19px;
+  font-size: 1.1875rem;
   line-height: 1.4;
   margin: 0 0 8px;
 }
 .root h3 {
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.4;
   margin: 0 0 12px;
 }
 .root h4 {
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.4;
   margin: 0 0 8px;
 }
@@ -73,7 +73,7 @@
   text-align: center;
 }
 .caption {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -92,11 +92,11 @@
   margin-bottom: 20px;
 }
 .overviewCard {
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.6;
 }
 .overviewCard h2 {
-  font-size: 18px;
+  font-size: 1.125rem;
   line-height: 1.4;
   margin: 0;
 }
@@ -130,7 +130,7 @@
   min-width: 0;
 }
 .count dt {
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin-bottom: 6px;
   display: flex;
   align-items: center;
@@ -138,7 +138,7 @@
   overflow-wrap: anywhere;
 }
 .count dd {
-  font-size: 28px;
+  font-size: 1.75rem;
   font-weight: 600;
   line-height: 1.2;
   margin: 0;
@@ -209,7 +209,7 @@
   border-color: var(--muted);
 }
 .tab small {
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-variant-numeric: tabular-nums;
 }
 .areaGrid {
@@ -232,12 +232,12 @@
 }
 .area strong {
   display: block;
-  font-size: 14px;
+  font-size: var(--type-body);
   margin-bottom: 6px;
 }
 .area span {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -268,10 +268,10 @@
   background: transparent;
   color: var(--text);
   padding: 0;
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .search:focus-within {
-  outline: 1px solid #a3a3a3;
+  outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
 .search input::placeholder {
@@ -283,7 +283,7 @@
   flex-wrap: wrap;
 }
 .statusFilters button {
-  font-size: 12px;
+  font-size: var(--type-caption);
   padding: 6px 9px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -322,7 +322,7 @@
 }
 .check > summary::after {
   content: "+";
-  font-size: 18px;
+  font-size: 1.125rem;
   line-height: 1.5;
   flex: none;
   color: var(--muted);
@@ -338,13 +338,13 @@
 }
 .checkName small {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   font-weight: 400;
   margin-top: 3px;
 }
 .expandHint {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   padding-top: 2px;
   flex: none;
@@ -353,7 +353,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 500;
   padding: 3px 7px;
   border-radius: 5px;
@@ -402,7 +402,7 @@
 .root pre,
 .overviewCard pre {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -423,12 +423,12 @@
   min-width: 0;
 }
 .metrics dt {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .metrics dd {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 14px;
+  font-size: var(--type-body);
   margin: 2px 0 0;
   overflow-wrap: anywhere;
 }
@@ -448,7 +448,7 @@
 }
 .sql summary {
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--type-body);
   color: var(--text);
   overflow-wrap: anywhere;
 }
@@ -458,7 +458,7 @@
 .error,
 .warning,
 .notice {
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.6;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -494,7 +494,7 @@
   min-width: 0;
 }
 .settings > summary {
-  font-size: 14px;
+  font-size: var(--type-body);
   font-weight: 600;
   cursor: pointer;
   overflow-wrap: anywhere;
@@ -510,7 +510,7 @@
   gap: 16px;
 }
 .settings label {
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .field {
   display: grid;
@@ -523,7 +523,7 @@
   border-radius: 7px;
   color: var(--text);
   background: var(--surface);
-  font-size: 14px;
+  font-size: var(--type-body);
   width: 100%;
   min-width: 0;
 }
@@ -545,7 +545,7 @@
 }
 .checkbox small {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   font-weight: 400;
   margin-top: 4px;
@@ -560,7 +560,7 @@
 .history > summary {
   font-weight: 600;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .history ol {
   list-style: none;
@@ -594,11 +594,11 @@
 }
 .historyButton strong {
   display: block;
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .historyButton small {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -632,7 +632,7 @@
 .root input:focus-visible,
 .root pre:focus-visible,
 .overviewCard a:focus-visible {
-  outline: 1px solid #a3a3a3;
+  outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
 .overviewCounts {
@@ -642,13 +642,13 @@
   margin: 14px 0;
 }
 .overviewCounts span {
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .overviewCounts strong {
   font-variant-numeric: tabular-nums;
 }
 .overviewMeta {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -661,10 +661,10 @@
 }
 .root :global(.button) {
   min-height: 36px;
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .root :global(.button-sm) {
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .root :global(.button-icon) {
   width: 36px;
@@ -741,7 +741,7 @@
   }
   .root .caption,
   .overviewMeta {
-    font-size: 12px;
+    font-size: var(--type-caption);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -755,7 +755,7 @@
 }
 
 .values h3 {
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.4;
   margin: 0 0 8px;
 }

@@ -166,7 +166,7 @@ describe("Explore number formatting", () => {
   it("uses measure metadata formats without treating sales as a year", () => {
     expect(formatMeasure(2022, "currency")).toBe("$2,022.00");
     expect(formatMeasure(2022, "number")).toBe("2,022");
-    expect(formatMeasure(0.125, "percent")).toBe("12.5%");
+    expect(formatMeasure(0.125, "percent")).toBe("12.50%");
     expect(formatMeasure(1.2, "decimals")).toBe("1.20");
   });
   it("formats driver numeric measure strings while preserving integer precision and dimension text", () => {

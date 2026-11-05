@@ -99,7 +99,7 @@ export function RunsTable({
           label="Filter runs by status"
           value={filter}
           onValueChange={setFilter}
-          style={{ fontSize: 11 }}
+          style={{ fontSize: "var(--type-body, .875rem)" }}
           options={[
             { value: "all", label: "All statuses" },
             ...(

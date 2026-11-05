@@ -240,7 +240,11 @@ function Column({
               label: value,
             }))}
             onValueChange={(value) => onAggregation(value as Aggregation)}
-            style={{ height: 25, padding: "3px 7px", fontSize: 9 }}
+            style={{
+              height: 25,
+              padding: "3px 7px",
+              fontSize: "var(--type-body, .875rem)",
+            }}
           />
         </div>
       )}
@@ -282,6 +286,7 @@ function SchemaPreview({ model }: { model: Model }) {
       role="img"
       aria-label={`Star schema: ${model.fact.name}, ${model.fact.measures.length} measures, ${model.fact.foreignKeys.length} foreign keys and ${model.dimensions.length} dimensions`}
     >
+      <title>{`Star schema for ${model.fact.name}. ${model.dimensions.map((dimension) => `${dimension.name}, business key ${model.columnNames[dimension.businessKey] || dimension.businessKey || "not set"}`).join("; ")}`}</title>
       <defs>
         <pattern
           id={patternId}
@@ -345,6 +350,7 @@ function SchemaPreview({ model }: { model: Model }) {
         style={{ stroke: "none" }}
       />
       <text x="105" y={centerY - 18}>
+        <title>{model.fact.name}</title>
         {model.fact.name.slice(0, 16)}
       </text>
       <text x="105" y={centerY + 5} className="svg-muted">
@@ -854,7 +860,7 @@ export function ModelEditor({
                           style={{
                             height: 28,
                             padding: "4px 7px",
-                            fontSize: 10,
+                            fontSize: "var(--type-body, .875rem)",
                             flex: 1,
                             minWidth: 0,
                           }}
@@ -895,6 +901,26 @@ export function ModelEditor({
                 <SchemaPreview model={model} />
               </div>
               <div className="schema-info">
+                <details className="schema-text-details">
+                  <summary>Read the full schema names and keys</summary>
+                  <p>
+                    <strong>{model.fact.name}</strong>:{" "}
+                    {model.fact.grain || "Grain not set"}
+                  </p>
+                  <ul>
+                    {model.dimensions.map((dimension) => (
+                      <li key={dimension.id}>
+                        <strong>{dimension.name}</strong>
+                        {": business key "}
+                        {model.columnNames[dimension.businessKey] ||
+                          dimension.businessKey ||
+                          "not set"}
+                        {dimension.columnIds.length > 0 &&
+                          `; columns ${dimension.columnIds.map((id) => model.columnNames[id] || find(id)?.name || id).join(", ")}`}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
                 <div className="detail-row">
                   <span>Fact tables</span>
                   <span className="mono">1</span>
@@ -933,7 +959,15 @@ export function ModelEditor({
                     size="sm"
                     variant="outline"
                     disabled={regenerating}
-                    onClick={() => edit({ type: "replace", model: removeMissingPreparedAssignments(modelRef.current, columns.map((column) => column.id)) })}
+                    onClick={() =>
+                      edit({
+                        type: "replace",
+                        model: removeMissingPreparedAssignments(
+                          modelRef.current,
+                          columns.map((column) => column.id),
+                        ),
+                      })
+                    }
                   >
                     Remove missing assignments
                   </Button>

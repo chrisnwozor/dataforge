@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Eye, EyeOff, LockKeyhole, Check, Loader2, Plug } from "lucide-react";
 import type { PublicConnection } from "@/lib/server/connection";
 import { ThemeChoice } from "./theme-provider";
+import { ReadabilityControls } from "./readability/controls";
 import { Button } from "./ui/button";
 
 type FormValues = Pick<
@@ -388,11 +389,12 @@ export function SettingsForm({
           <h2>Appearance</h2>
         </div>
         <div className="panel-body">
-          <label className="form-label">Interface theme</label>
+          <p className="form-label">Interface theme</p>
           <p className="help-text" style={{ marginBottom: 16 }}>
             Choose what feels right. Your preference is saved in this browser.
           </p>
           <ThemeChoice />
+          <ReadabilityControls />
         </div>
       </section>
     </div>

@@ -25,7 +25,7 @@
 .meta {
   gap: 9px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .meta > span {
   color: var(--line-strong);
@@ -61,7 +61,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--type-body);
   font-weight: 550;
   margin: 0;
 }
@@ -86,7 +86,7 @@
   margin: 0;
   padding: 9px 8px 7px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 500;
 }
 .measureItem {
@@ -101,7 +101,7 @@
   text-align: left;
   color: var(--muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .measureItem > span:first-of-type {
   overflow: hidden;
@@ -124,7 +124,7 @@
   margin-left: auto;
   flex-shrink: 0;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: var(--type-caption);
   letter-spacing: 0.025em;
   color: var(--muted);
 }
@@ -135,7 +135,7 @@
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 .editorHeading {
   gap: 12px;
@@ -143,7 +143,7 @@
 }
 .small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .editorBody {
   padding: 20px;
@@ -157,7 +157,7 @@
   display: flex;
   flex-direction: column;
   gap: 7px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-bottom: 15px;
   min-width: 0;
@@ -170,7 +170,7 @@
   padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--type-body);
 }
 .field input::placeholder,
 .expression::placeholder {
@@ -180,7 +180,7 @@
   justify-content: space-between;
   gap: 10px;
   margin: 4px 0 8px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .expression {
@@ -194,7 +194,7 @@
   border-radius: 6px;
   padding: 12px;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 12px;
+  font-size: var(--type-body);
   line-height: 1.8;
   tab-size: 2;
 }
@@ -209,7 +209,7 @@
   gap: 5px;
   min-height: 30px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   margin-bottom: 10px;
 }
 .validation > span,
@@ -260,7 +260,7 @@ button.validationError {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.7;
   border-radius: 5px;
   padding: 10px 13px;
@@ -294,10 +294,10 @@ button.validationError {
   border-radius: 5px;
   margin-top: 15px;
   padding: 14px;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .testValue strong {
-  font-size: 21px;
+  font-size: 1.3125rem;
   font-weight: 550;
   font-family: var(--font-geist-mono), monospace;
 }
@@ -323,7 +323,7 @@ button.validationError {
 }
 .loading {
   padding: 95px 20px;
-  font-size: 12px;
+  font-size: var(--type-body);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -350,7 +350,7 @@ button.validationError {
   margin-bottom: 10px;
 }
 .hierarchy strong {
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -371,7 +371,7 @@ button.validationError {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .hierarchy li span {
   background: var(--raised);
@@ -384,7 +384,7 @@ button.validationError {
   margin: 0;
   padding: 18px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   grid-column: 1 / -1;
   line-height: 1.7;
 }
@@ -398,7 +398,7 @@ button.validationError {
   border-radius: 4px;
   padding: 3px 7px;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 .queryControls {
   display: grid;
@@ -413,7 +413,7 @@ button.validationError {
   border: 0;
 }
 .choices legend {
-  font-size: 11px;
+  font-size: var(--type-caption);
   margin-bottom: 10px;
   padding: 0;
   font-weight: 500;
@@ -435,7 +435,7 @@ button.validationError {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
   cursor: pointer;
 }
@@ -469,7 +469,7 @@ button.validationError {
 }
 .queryEmpty {
   padding: 37px 20px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   border-top: 1px solid var(--line);
   background: var(--bg);
 }
@@ -480,7 +480,7 @@ button.validationError {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 20px;
-  font-size: 10px;
+  font-size: var(--type-caption);
   color: var(--muted);
   background: var(--raised);
   flex-wrap: wrap;
@@ -502,7 +502,7 @@ button.validationError {
 .tableScroll table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--type-caption);
   white-space: nowrap;
 }
 .tableScroll th {
@@ -536,14 +536,14 @@ button.validationError {
   padding: 10px 12px;
   cursor: pointer;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
   background: var(--raised);
   list-style-position: inside;
 }
 .sql summary::before {
   content: "›";
   margin-right: 7px;
-  font-size: 15px;
+  font-size: 0.9375rem;
   line-height: 1;
 }
 .sql[open] summary::before {
@@ -554,14 +554,14 @@ button.validationError {
   padding-left: 15px;
   color: var(--subtle);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 .sql pre {
   margin: 0;
   padding: 14px;
   background: var(--bg);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
   line-height: 1.8;
   overflow: auto;
   max-height: 260px;
@@ -579,7 +579,7 @@ button.validationError {
 .diagnosticsAction p {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 .diagnosticsAction button {
@@ -587,13 +587,13 @@ button.validationError {
 }
 .sqlCpu {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 400;
 }
 .sqlStatisticsNote {
   margin: 10px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 @media (max-width: 600px) {
@@ -608,7 +608,7 @@ button.validationError {
   flex-direction: column;
   gap: 4px;
   padding: 10px 14px;
-  font-size: 10px;
+  font-size: var(--type-caption);
   color: var(--muted);
   border-top: 1px solid var(--line);
   overflow-wrap: anywhere;
@@ -637,19 +637,19 @@ button.validationError {
 }
 .timingHeader h3 {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 500;
 }
 .timingHeader > span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 .timingGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 20px;
   margin: 0;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 .timingGrid > div {
   display: flex;
@@ -681,7 +681,7 @@ button.validationError {
   border-radius: 4px;
   padding: 2px 5px;
   color: var(--amber);
-  font-size: 9px;
+  font-size: var(--type-caption);
   white-space: nowrap;
 }
 .timingSlow dd > span:first-child {
@@ -712,7 +712,7 @@ button.validationError {
 }
 .prerequisite h2 {
   margin: 0 0 10px;
-  font-size: 19px;
+  font-size: 1.1875rem;
   font-weight: 500;
 }
 .prerequisite > p {
@@ -746,14 +746,14 @@ button.validationError {
   backdrop-filter: blur(3px);
 }
 .dialog h2 {
-  font-size: 17px;
+  font-size: 1.0625rem;
   font-weight: 500;
   margin: 0 0 12px;
   overflow-wrap: anywhere;
 }
 .dialog p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-body);
   line-height: 1.8;
   margin-bottom: 23px;
 }
@@ -767,7 +767,7 @@ button.validationError {
 .workspace pre:focus-visible,
 .workspace [tabindex="0"]:focus-visible,
 .dialog button:focus-visible {
-  outline: 1px solid #a3a3a3;
+  outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
   box-shadow: none;
 }
@@ -828,9 +828,100 @@ button.validationError {
     padding: 38px 18px;
   }
   .prerequisite h2 {
-    font-size: 17px;
+    font-size: 1.0625rem;
   }
   .dialog {
     padding: 20px;
+  }
+}
+
+/* Use the shared scale for readable editing, validation and query results. */
+.measureItem,
+.field input,
+.expression,
+.validation,
+.error,
+.success,
+.editorEmpty p,
+.emptyList,
+.queryEmpty,
+.tableScroll table,
+.choices legend,
+.checkboxList label,
+.checkboxLabel {
+  font-size: var(--type-body);
+  line-height: 1.6;
+}
+.panelHeader h2,
+.folder h3,
+.timingHeader h3,
+.hierarchy strong {
+  font-size: var(--type-body);
+}
+.measureItem > span:first-of-type {
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.measureKind {
+  margin-left: 0;
+}
+.measureItem {
+  flex-wrap: wrap;
+  min-height: 40px;
+}
+.panelHeader,
+.expressionHeader,
+.libraryFoot,
+.hierarchy > div,
+.readonly,
+.testValue {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+.sql pre {
+  font-size: var(--type-caption);
+}
+.tableScroll th,
+.tableScroll td {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+.field,
+.hierarchy li,
+.params,
+.testValue strong {
+  overflow-wrap: anywhere;
+}
+.checkboxList label,
+.checkboxLabel {
+  min-height: 40px;
+  align-items: center;
+}
+@media (max-width: 850px) {
+  .editorGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .measureList {
+    max-height: 22rem;
+  }
+}
+@media (max-width: 600px) {
+  .fields,
+  .queryControls,
+  .hierarchyList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .panelHeader {
+    align-items: flex-start;
+  }
+  .hierarchy:nth-child(odd) {
+    border-right: 0;
+  }
+  .timingGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

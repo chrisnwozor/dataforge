@@ -100,7 +100,11 @@ export function ProjectsList({ projects }: { projects: Project[] }) {
             options={["All statuses", "Ready", "Needs review", "Draft"].map(
               (value) => ({ value, label: value }),
             )}
-            style={{ fontSize: 11, height: 36, maxWidth: 135 }}
+            style={{
+              fontSize: "var(--type-body, .875rem)",
+              height: 36,
+              maxWidth: 135,
+            }}
           />
         </div>
         <div className="toolbar-right">
@@ -112,7 +116,7 @@ export function ProjectsList({ projects }: { projects: Project[] }) {
             onValueChange={setSort}
             align="end"
             style={{
-              fontSize: 11,
+              fontSize: "var(--type-body, .875rem)",
               height: 34,
               border: 0,
               background: "transparent",
@@ -163,13 +167,13 @@ export function ProjectsList({ projects }: { projects: Project[] }) {
                   </span>
                   <StatusBadge status={p.status} />
                 </div>
-                <h2 className="project-name">
+                <h2 className="project-name" title={p.name}>
                   {p.name}
                   <ArrowUpRight size={12} className="muted" />
                 </h2>
                 <div className="project-source">
                   <FileSpreadsheet size={11} />
-                  <span>{p.sourceName}</span>
+                  <span title={p.sourceName}>{p.sourceName}</span>
                   <span>· {p.sourceType}</span>
                 </div>
                 <Sparkline values={p.activity} />
@@ -228,7 +232,8 @@ export function ProjectsList({ projects }: { projects: Project[] }) {
                   <Link
                     href={`/projects/${p.id}`}
                     className="project-name"
-                    style={{ fontSize: 12 }}
+                    title={p.name}
+                    style={{ fontSize: "var(--type-body, .875rem)" }}
                   >
                     <Database size={14} />
                     {p.name}

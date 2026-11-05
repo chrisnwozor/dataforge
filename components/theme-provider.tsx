@@ -31,7 +31,7 @@ export function ThemeToggle() {
 export function ThemeChoice() {
   const { theme, setTheme } = useTheme();
   return (
-    <div className="segmented">
+    <div className="segmented" role="group" aria-label="Interface theme">
       {[
         { id: "light", Icon: Sun },
         { id: "dark", Icon: Moon },

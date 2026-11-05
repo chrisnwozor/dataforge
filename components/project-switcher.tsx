@@ -46,6 +46,7 @@ export function WorkspaceSwitcher() {
             type="button"
             className={cn("workspace-switch", styles.workspaceTrigger)}
             aria-label={`Switch workspace: ${initials} ${name} ${identity.local ? "Local" : active?.role || "Member"}`}
+            title={name}
           >
             <span className="workspace-avatar" aria-hidden="true">
               {initials}
@@ -77,7 +78,7 @@ export function WorkspaceSwitcher() {
         </DropdownMenuContent>
       </DropdownMenu>
       {error && (
-        <span role="alert" style={{ fontSize: 11 }}>
+        <span role="alert" style={{ fontSize: "var(--type-body, .875rem)" }}>
           {error}
         </span>
       )}
