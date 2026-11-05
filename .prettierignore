@@ -1,0 +1,8 @@
+node_modules
+.next
+pnpm-lock.yaml
+data
+docs/screenshots
+src/app/fonts
+public
+coverage

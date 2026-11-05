@@ -1,0 +1,581 @@
+.indexNumber {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.smallHeading {
+  margin: 0 0 16px;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.lead {
+  font-size: 18px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  max-width: 66ch;
+}
+.servicesSection {
+  padding-top: 0 !important;
+}
+.serviceIndex {
+  padding: 48px 0 56px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.serviceIndex ol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 64px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.serviceIndex a {
+  display: grid;
+  grid-template-columns: 24px 1fr 20px;
+  gap: 16px;
+  align-items: baseline;
+  text-decoration: none;
+  padding: 18px 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.5;
+}
+.serviceIndex a svg {
+  justify-self: end;
+  align-self: center;
+  transition: transform 200ms ease;
+}
+.serviceIndex a:hover svg,
+.serviceIndex a:focus-visible svg {
+  transform: translate(2px, -2px);
+}
+.serviceArticle {
+  scroll-margin-top: 100px;
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 80px;
+  padding: 104px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.serviceArticle:last-child {
+  border-bottom: 0;
+  padding-bottom: 64px;
+}
+.serviceIdentity {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  column-gap: 16px;
+  align-content: start;
+}
+.serviceIdentity p {
+  margin: -2px 0 0;
+  font-size: 18px;
+  line-height: 1.5;
+  max-width: 22ch;
+}
+.serviceMotif {
+  grid-column: 2;
+  width: 144px;
+  height: 116px;
+  margin-top: 32px;
+  color: var(--accent);
+}
+.serviceBody h2,
+.industryGrid h2,
+.engagement h2,
+.philosophy h2,
+.principlesHeader h2,
+.projectProof h2 {
+  font-family: var(--font-display), serif;
+  font-size: clamp(2.25rem, 3.8vw, 3.75rem);
+  line-height: 1.12;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  margin: 0;
+  text-wrap: balance;
+}
+.serviceBody > .lead {
+  margin: 24px 0 40px;
+}
+.deliverables {
+  margin-bottom: 32px;
+}
+.ruleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ruleList li {
+  position: relative;
+  padding: 13px 0 13px 20px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+.ruleList li::before {
+  content: "";
+  position: absolute;
+  top: 25px;
+  left: 1px;
+  width: 4px;
+  height: 4px;
+  background: var(--accent);
+}
+.technologyBlock {
+  margin: 36px 0;
+}
+.technologyList {
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  gap: 8px 0;
+}
+.technologyList li {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.technologyList li:not(:last-child)::after {
+  content: "/";
+  display: inline-block;
+  padding: 0 12px;
+  color: var(--text-muted);
+}
+.idealWhen {
+  border-left: 1px solid var(--accent);
+  padding-left: 24px;
+  margin-top: 36px;
+}
+.idealWhen .smallHeading {
+  margin-bottom: 8px;
+}
+.idealWhen p {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.75;
+}
+.technologyNote {
+  margin: 0 0 0 auto;
+  max-width: 66%;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+.engagement,
+.projectProof {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 96px;
+  align-items: start;
+}
+.engagement .lead,
+.projectProof .lead {
+  margin: 0 0 32px;
+}
+.engagement h2 {
+  max-width: 12ch;
+}
+.scenarioNotice {
+  max-width: 90ch;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.75;
+  margin: 0 0 72px;
+  padding-left: 24px;
+  border-left: 1px solid var(--accent);
+}
+.industryArticle {
+  padding: 64px 0 88px;
+  border-top: 1px solid var(--border-subtle);
+  scroll-margin-top: 100px;
+}
+.industryArticle:last-child {
+  padding-bottom: 0;
+}
+.industryHeader {
+  display: grid;
+  grid-template-columns: 32px 1fr 120px;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 40px;
+}
+.industryHeader p {
+  margin: 0;
+}
+.industryMotif {
+  color: var(--accent);
+  width: 120px;
+  height: 96px;
+}
+.industryGrid {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 96px;
+}
+.industryGrid h2 {
+  max-width: 15ch;
+}
+.industryBody > div {
+  margin-bottom: 32px;
+}
+.industryBody p {
+  color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1.8;
+  margin: 0;
+}
+.sourceList {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  padding: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.sourceList li {
+  padding-left: 14px;
+  position: relative;
+}
+.sourceList li::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  position: absolute;
+  top: 9px;
+  left: 0;
+  background: var(--accent);
+}
+.principlesHeader {
+  max-width: 700px;
+  margin-bottom: 64px;
+}
+.principlesList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.principlesList li {
+  display: grid;
+  grid-template-columns: 40px 1fr 1fr;
+  gap: 32px;
+  padding: 32px 0;
+  border-top: 1px solid var(--border-subtle);
+  align-items: baseline;
+}
+.principlesList h3 {
+  font-family: var(--font-display), serif;
+  margin: 0;
+  font-size: clamp(1.625rem, 2.6vw, 2.5rem);
+  line-height: 1.25;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+.principlesList p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1.8;
+  max-width: 50ch;
+}
+.mission {
+  max-width: 1050px;
+  padding-bottom: 104px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.mission > p:last-child {
+  font-family: var(--font-display), serif;
+  font-size: clamp(2.5rem, 5.2vw, 5rem);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  margin: 32px 0 0;
+}
+.philosophy {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 112px;
+  padding-top: 104px;
+}
+.philosophy h2 {
+  max-width: 14ch;
+}
+.philosophy p {
+  font-size: 18px;
+  line-height: 1.85;
+  color: var(--text-secondary);
+  margin: 0 0 24px;
+}
+.philosophy p:last-child {
+  margin-bottom: 0;
+}
+.projectProof {
+  align-items: center;
+}
+.projectProof h2 {
+  max-width: 15ch;
+}
+.teamList {
+  border-top: 1px solid var(--border-subtle);
+}
+.teamMember {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 80px;
+  padding: 40px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.teamMember h3 {
+  font-size: 28px;
+  font-weight: 400;
+  margin: 0 0 8px;
+}
+.teamMember p {
+  color: var(--text-secondary);
+  line-height: 1.8;
+  margin-top: 0;
+}
+.personRole {
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+}
+.privacyContent {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.privacyContent > section {
+  margin-bottom: 56px;
+}
+.privacyContent h2 {
+  font-family: var(--font-display), serif;
+  font-size: clamp(1.875rem, 3vw, 2.5rem);
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  margin: 0 0 24px;
+}
+.privacyContent p {
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1.85;
+  margin: 0 0 20px;
+}
+
+@media (max-width: 1100px) {
+  .serviceArticle {
+    gap: 48px;
+    grid-template-columns: 0.9fr 2fr;
+  }
+  .industryGrid,
+  .engagement,
+  .projectProof,
+  .philosophy {
+    gap: 56px;
+  }
+  .principlesList li {
+    gap: 24px;
+    grid-template-columns: 24px 1fr 1.1fr;
+  }
+}
+
+@media (max-width: 800px) {
+  .serviceIndex ol {
+    column-gap: 32px;
+  }
+  .serviceIndex a {
+    font-size: 14px;
+    gap: 12px;
+    grid-template-columns: 20px 1fr 16px;
+  }
+  .serviceArticle {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding: 72px 0;
+  }
+  .serviceIdentity {
+    grid-template-columns: 24px 1fr 100px;
+    align-items: center;
+  }
+  .serviceIdentity p {
+    max-width: none;
+  }
+  .serviceMotif {
+    grid-column: 3;
+    width: 100px;
+    height: 80px;
+    margin: 0;
+  }
+  .serviceBody {
+    max-width: 700px;
+  }
+  .technologyNote {
+    max-width: 100%;
+  }
+  .industryGrid {
+    gap: 40px;
+    grid-template-columns: 1fr;
+  }
+  .industryGrid h2 {
+    max-width: 22ch;
+  }
+  .industryHeader {
+    margin-bottom: 24px;
+  }
+  .industryArticle {
+    padding-top: 40px;
+    padding-bottom: 72px;
+  }
+  .industryBody {
+    max-width: 700px;
+  }
+  .scenarioNotice {
+    margin-bottom: 48px;
+  }
+  .principlesList li {
+    grid-template-columns: 24px 1fr;
+    gap: 16px 24px;
+    padding: 28px 0;
+  }
+  .principlesList p {
+    grid-column: 2;
+    max-width: 66ch;
+  }
+  .engagement,
+  .projectProof,
+  .philosophy {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .engagement h2,
+  .projectProof h2 {
+    max-width: 18ch;
+  }
+  .philosophy h2 {
+    max-width: 20ch;
+  }
+  .mission {
+    padding-bottom: 72px;
+  }
+  .philosophy {
+    padding-top: 72px;
+  }
+  .teamMember {
+    gap: 32px;
+  }
+}
+
+@media (max-width: 500px) {
+  .serviceIndex {
+    padding: 24px 0 32px;
+  }
+  .serviceIndex ol {
+    grid-template-columns: 1fr;
+  }
+  .serviceIndex a {
+    padding: 15px 0;
+    font-size: 15px;
+    gap: 16px;
+  }
+  .serviceArticle {
+    padding: 56px 0;
+  }
+  .serviceArticle:last-child {
+    padding-bottom: 40px;
+  }
+  .serviceIdentity {
+    gap: 12px;
+    grid-template-columns: 20px 1fr 72px;
+  }
+  .serviceIdentity p {
+    font-size: 15px;
+  }
+  .serviceMotif {
+    width: 72px;
+    height: 58px;
+  }
+  .serviceBody h2,
+  .industryGrid h2,
+  .engagement h2,
+  .philosophy h2,
+  .principlesHeader h2,
+  .projectProof h2 {
+    font-size: clamp(2.125rem, 8.9vw, 2.75rem);
+  }
+  .lead {
+    font-size: 17px;
+    line-height: 1.8;
+  }
+  .serviceBody > .lead {
+    margin-bottom: 32px;
+  }
+  .idealWhen {
+    padding-left: 20px;
+  }
+  .industryHeader {
+    grid-template-columns: 20px 1fr 72px;
+    gap: 12px;
+  }
+  .industryHeader p {
+    font-size: 12px;
+    line-height: 1.8;
+    letter-spacing: 0.08em;
+  }
+  .industryMotif {
+    width: 72px;
+    height: 58px;
+  }
+  .industryGrid {
+    gap: 32px;
+  }
+  .industryBody p {
+    font-size: 16px;
+  }
+  .sourceList {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .principlesHeader {
+    margin-bottom: 40px;
+  }
+  .principlesList li {
+    column-gap: 16px;
+  }
+  .principlesList h3 {
+    font-size: 26px;
+  }
+  .principlesList p {
+    font-size: 16px;
+  }
+  .mission > p:last-child {
+    font-size: clamp(2.35rem, 9.2vw, 3rem);
+  }
+  .philosophy p,
+  .privacyContent p {
+    font-size: 17px;
+  }
+  .teamMember {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .privacyContent > section {
+    margin-bottom: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .serviceIndex a svg {
+    transition: none;
+  }
+}

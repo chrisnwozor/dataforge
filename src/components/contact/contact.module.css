@@ -1,0 +1,642 @@
+.contactSection {
+  scroll-margin-top: 6rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: clamp(3.5rem, 8vw, 8rem);
+  align-items: start;
+}
+
+.aside {
+  min-width: 0;
+  padding-top: 0.5rem;
+}
+
+.asideTitle {
+  max-width: 11ch;
+  margin: 1.5rem 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 4vw, 3.5rem);
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.asideDescription {
+  color: var(--text-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+
+.steps {
+  display: grid;
+  margin: 2.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1.5rem 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.stepNumber {
+  padding-top: 0.25rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.steps h3 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.steps p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+.privacyNote {
+  max-width: 40ch;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.75;
+}
+
+.email {
+  margin-top: 1.5rem;
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.email a,
+.consentRow a,
+.errorSummary a {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+}
+
+.email a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.form,
+.success,
+.unavailable {
+  min-width: 0;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--text-primary);
+}
+
+.formHeading {
+  margin-bottom: 2.5rem;
+}
+
+.formHeading h2 {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 3vw, 2.75rem);
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.formHeading p,
+.submitRow p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.fields {
+  display: grid;
+  gap: 1.75rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+.field {
+  display: grid;
+  align-content: start;
+  gap: 0.625rem;
+  min-width: 0;
+}
+
+.field label,
+.label {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0.8125rem 0.875rem;
+  border: 1px solid var(--border-control, var(--text-muted));
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.field select {
+  padding-right: 2rem;
+  text-overflow: clip;
+}
+
+.field option {
+  background: #f7f4ef;
+  color: #15202e;
+}
+
+.selectedService {
+  display: none;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.field textarea {
+  min-height: 192px;
+  resize: vertical;
+}
+
+.field textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: var(--text-secondary);
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--text-primary);
+}
+
+.field [aria-invalid="true"],
+.consentRow [aria-invalid="true"] {
+  border-color: #91382f;
+}
+
+.descriptionHelp {
+  display: flex;
+  align-items: start;
+  gap: 1rem;
+}
+
+.hint {
+  flex: 1;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
+.counter {
+  flex-shrink: 0;
+  padding-top: 0.125rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.7;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.consentField {
+  min-width: 0;
+}
+
+.consentRow {
+  display: flex;
+  align-items: start;
+  gap: 0.25rem;
+  min-height: 44px;
+}
+
+.consentRow input {
+  position: relative;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  cursor: pointer;
+}
+
+.consentRow input::before {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--text-secondary);
+  content: "";
+}
+
+.consentRow input:checked::before {
+  border-color: #172536;
+  background: #172536;
+}
+
+.consentRow input:checked::after {
+  position: absolute;
+  top: 14px;
+  left: 9px;
+  width: 6px;
+  height: 12px;
+  border-right: 2px solid #f7f4ef;
+  border-bottom: 2px solid #f7f4ef;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.consentRow input[aria-invalid="true"]::before {
+  border-color: #91382f;
+}
+
+.consentRow label {
+  min-height: 44px;
+  padding: 0.375rem 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.75;
+  cursor: pointer;
+}
+
+.consentRow a {
+  color: var(--text-primary);
+}
+
+.context {
+  display: grid;
+  gap: 0.375rem;
+  margin: -0.75rem 0 2rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.context span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.fieldError {
+  margin: 0;
+  color: #91382f;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.errorSummary {
+  margin: 0 0 2rem;
+  padding: 1.25rem;
+  border: 1px solid #91382f;
+  color: #792b24;
+  scroll-margin-top: 8rem;
+}
+
+.errorSummary h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.errorSummary p {
+  margin: 0.5rem 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.errorSummary ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.errorSummary a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.retryButton {
+  min-height: 44px;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+  cursor: pointer;
+}
+
+.verification {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.verificationWidget {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.submitRow {
+  display: grid;
+  justify-items: start;
+  gap: 1rem;
+  padding-top: 0.25rem;
+}
+
+.submitButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2.5rem;
+  min-width: 224px;
+  min-height: 56px;
+  padding: 1rem 1.25rem;
+  border: 1px solid #0b1220;
+  border-radius: 0;
+  background: #0b1220;
+  color: #f7f4ef;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.submitButton svg,
+.successLink svg {
+  flex-shrink: 0;
+  transition: transform 180ms ease;
+}
+
+.submitButton:hover,
+.submitButton:focus-visible {
+  border-color: #2d4058;
+  background: #2d4058;
+}
+
+.submitButton:hover svg,
+.submitButton:focus-visible svg,
+.successLink:hover svg,
+.successLink:focus-visible svg {
+  transform: translateX(3px);
+}
+
+.submitButton:disabled {
+  border-color: #394350;
+  background: #394350;
+  cursor: wait;
+}
+
+.fields:disabled input,
+.fields:disabled select,
+.fields:disabled textarea {
+  cursor: wait;
+}
+
+.honeypot {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.success {
+  padding-top: 2rem;
+}
+
+.successMark {
+  display: flex;
+  align-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 2rem;
+  color: var(--text-primary);
+}
+
+.formEyebrow {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.success h2 {
+  max-width: 15ch;
+  margin: 0 0 1.5rem;
+  font-family: var(--font-display);
+  font-size: clamp(2.75rem, 5vw, 4rem);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.success > p:not(.formEyebrow) {
+  max-width: 48ch;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+
+.unavailable h2 {
+  margin: 1.5rem 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 4vw, 3.5rem);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.unavailable > p:not(:first-child) {
+  max-width: 46ch;
+  color: var(--text-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+
+.unavailableActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 2rem;
+  margin-top: 2rem;
+}
+
+.reloadLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid var(--text-primary);
+  font-size: 0.9375rem;
+  text-decoration: none;
+}
+
+.successLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.5rem;
+  min-height: 48px;
+  margin-top: 2rem;
+  border-bottom: 1px solid var(--text-primary);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.form :focus-visible,
+.success :focus-visible,
+.aside a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+}
+
+@media (max-width: 1023px) {
+  .layout {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 3rem;
+  }
+
+  .fieldRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.75rem;
+  }
+
+  .selectedService {
+    display: block;
+  }
+}
+
+@media (forced-colors: active) {
+  .consentRow input {
+    appearance: auto;
+  }
+
+  .consentRow input::before,
+  .consentRow input::after {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3.5rem;
+  }
+
+  .asideTitle {
+    max-width: 15ch;
+    margin-top: 1.25rem;
+  }
+
+  .steps {
+    margin: 2rem 0;
+  }
+
+  .steps li {
+    padding: 1.25rem 0;
+  }
+
+  .formHeading {
+    margin-bottom: 2rem;
+  }
+
+  .submitButton {
+    width: 100%;
+  }
+
+  .descriptionHelp {
+    gap: 0.75rem;
+  }
+
+  .hint {
+    font-size: 0.8125rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field input,
+  .field select,
+  .field textarea,
+  .submitButton,
+  .submitButton svg,
+  .successLink svg {
+    transition: none;
+  }
+
+  .submitButton:hover svg,
+  .submitButton:focus-visible svg,
+  .successLink:hover svg,
+  .successLink:focus-visible svg {
+    transform: none;
+  }
+}
